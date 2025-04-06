@@ -14,7 +14,7 @@ import SATR from './jATR.js';
  * @param {number} fast_multiplier - Multiplier for fast ATR
  * @returns {Object} - Object containing indicator values and signal
  */
-const jTSv2 = (source = {}, length = 6, period = 16, multiplier = 9, fast_multiplier = 5.1) => {
+const trend_sniper = (source = {}, length = 6, period = 16, multiplier = 9, fast_multiplier = 5.1) => {
     // Validate input data
     if (!source || !source.close || !source.open || !source.high || !source.low) {
         console.error("Missing required price data in source object");
@@ -135,4 +135,4 @@ const jTSv2 = (source = {}, length = 6, period = 16, multiplier = 9, fast_multip
     }
 }
 
-export default jTSv2;
+export default trend_sniper;
