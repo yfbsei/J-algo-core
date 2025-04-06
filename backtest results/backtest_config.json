@@ -1,0 +1,20 @@
+{
+  "symbol": "BTCUSDT",
+  "interval": "5m",
+  "limit": 6000,
+  "marketType": "futures",
+  "testnet": false,
+  "algoOptions": {
+    "length": 6,
+    "period": 16,
+    "multiplier": 9,
+    "fast_multiplier": 5.1,
+    "useScalpMode": true,
+    "scalpPeriod": 21,
+    "rewardMultiple": 1.5,
+    "initialCapital": 100,
+    "riskPerTrade": 10,
+    "useLeverage": true,
+    "leverageAmount": 2
+  }
+}
