@@ -56,7 +56,7 @@ const jalgo = (source = {}, options = {}) => {
                 indicator: baseIndicator,
                 trades: [],
                 statistics: {},
-                signal: baseSignal
+                signal: false
             };
         }
         
@@ -152,7 +152,7 @@ const jalgo = (source = {}, options = {}) => {
                 // Enhance signal with risk management data
                 signal = {
                     ...signal,
-                    stopLevel: stopReference,
+                    stopReference, // Not used as actual stop loss, just for reference
                     targetLevel,
                     riskAmount,
                     rewardAmount: riskAmount * rewardMultiple * effectiveLeverage,
@@ -173,7 +173,7 @@ const jalgo = (source = {}, options = {}) => {
                 // Enhance signal with risk management data
                 signal = {
                     ...signal,
-                    stopLevel: stopReference,
+                    stopReference, // Not used as actual stop loss, just for reference
                     targetLevel,
                     riskAmount,
                     rewardAmount: riskAmount * rewardMultiple * effectiveLeverage,
@@ -182,130 +182,391 @@ const jalgo = (source = {}, options = {}) => {
             }
         }
         
-        // Function to simulate trade execution and update statistics
-        // This would typically be used with historical data to backtest
-        const executeTrade = (trade, nextPrice) => {
-            const { position, location: entryPrice, stopLevel, targetLevel, riskAmount } = trade;
+        /**
+         * Function to process a candle for an open trade
+         * Returns trade result if trade is closed, null if still open
+         * 
+         * @param {Object} trade - Current trade information
+         * @param {Object} candle - Current candle data {open, high, low, close}
+         * @param {Object} newSignal - New signal if any
+         * @return {Object|null} - Trade result if closed, null if still open
+         */
+        const processTrade = (trade, candle, newSignal) => {
+            // Destructure trade info
+            const { 
+                position, 
+                location: entryPrice, 
+                stopReference, // Not used as actual stop, just for R:R
+                targetLevel, 
+                riskAmount 
+            } = trade;
             
-            // Update risked amount tracking
-            statistics.totalRiskedAmount += riskAmount;
-            
+            // Default to not exiting the trade
+            let shouldExit = false;
+            let exitReason = "";
+            let exitPrice = candle.close; // Default exit at close
             let tradeResult = 0;
             let isWin = false;
             let isTargetHit = false;
             
+            // Process long positions
             if (position === 'long') {
-                // Check if target was hit (win with full reward)
-                if (nextPrice >= targetLevel) {
+                // Check if target was hit within this candle
+                if (candle.high >= targetLevel) {
+                    // Take profit was hit
+                    shouldExit = true;
+                    exitReason = "Target Hit";
+                    exitPrice = targetLevel;
                     tradeResult = riskAmount * rewardMultiple * effectiveLeverage;
                     isWin = true;
                     isTargetHit = true;
                     statistics.longTargetHits += 1;
                 }
-                // Check if stop was hit (loss)
-                else if (nextPrice <= stopLevel) {
-                    tradeResult = -riskAmount * effectiveLeverage;
-                    isWin = false;
-                }
-                // Otherwise calculate partial result
-                else {
-                    const priceDelta = nextPrice - entryPrice;
-                    const targetDelta = targetLevel - entryPrice;
+                // Check if we have a new opposing signal
+                else if (newSignal && newSignal.position === 'short') {
+                    // New signal exit - can be profit or loss
+                    shouldExit = true;
+                    exitReason = "New Signal";
                     
-                    // Calculate what percentage to target
-                    const percentToTarget = priceDelta / targetDelta;
+                    // Calculate P&L
+                    const priceDifference = candle.close - entryPrice;
                     
-                    // Apply pro-rated reward
-                    tradeResult = percentToTarget * riskAmount * rewardMultiple * effectiveLeverage;
-                    isWin = tradeResult > 0;
+                    if (priceDifference >= 0) {
+                        // We're in profit - calculate as percentage of the way to target
+                        const targetDifference = targetLevel - entryPrice;
+                        const percentageToTarget = Math.min(priceDifference / targetDifference, 1.0);
+                        tradeResult = percentageToTarget * riskAmount * rewardMultiple * effectiveLeverage;
+                        isWin = true;
+                    } else {
+                        // We're in loss - calculate relative to theoretical risk
+                        const maxRiskDistance = entryPrice - stopReference;
+                        // Can lose more than theoretical risk since no actual stop loss
+                        const actualLossPercentage = Math.abs(priceDifference) / maxRiskDistance;
+                        tradeResult = -actualLossPercentage * riskAmount * effectiveLeverage;
+                        isWin = false;
+                    }
                 }
-                
-                // Update long win/loss statistics
-                if (isWin) {
-                    statistics.longWins += 1;
-                    statistics.totalProfit += tradeResult;
-                } else {
-                    statistics.longLosses += 1;
-                    statistics.totalLoss += Math.abs(tradeResult);
-                }
-            } 
+            }
+            // Process short positions
             else if (position === 'short') {
-                // Check if target was hit (win with full reward)
-                if (nextPrice <= targetLevel) {
+                // Check if target was hit within this candle
+                if (candle.low <= targetLevel) {
+                    // Take profit was hit
+                    shouldExit = true;
+                    exitReason = "Target Hit";
+                    exitPrice = targetLevel;
                     tradeResult = riskAmount * rewardMultiple * effectiveLeverage;
                     isWin = true;
                     isTargetHit = true;
                     statistics.shortTargetHits += 1;
                 }
-                // Check if stop was hit (loss)
-                else if (nextPrice >= stopLevel) {
-                    tradeResult = -riskAmount * effectiveLeverage;
-                    isWin = false;
-                }
-                // Otherwise calculate partial result
-                else {
-                    const priceDelta = entryPrice - nextPrice;
-                    const targetDelta = entryPrice - targetLevel;
+                // Check if we have a new opposing signal
+                else if (newSignal && newSignal.position === 'long') {
+                    // New signal exit - can be profit or loss
+                    shouldExit = true;
+                    exitReason = "New Signal";
                     
-                    // Calculate what percentage to target
-                    const percentToTarget = priceDelta / targetDelta;
+                    // Calculate P&L
+                    const priceDifference = entryPrice - candle.close;
                     
-                    // Apply pro-rated reward
-                    tradeResult = percentToTarget * riskAmount * rewardMultiple * effectiveLeverage;
-                    isWin = tradeResult > 0;
-                }
-                
-                // Update short win/loss statistics
-                if (isWin) {
-                    statistics.shortWins += 1;
-                    statistics.totalProfit += tradeResult;
-                } else {
-                    statistics.shortLosses += 1;
-                    statistics.totalLoss += Math.abs(tradeResult);
+                    if (priceDifference >= 0) {
+                        // We're in profit - calculate as percentage of the way to target
+                        const targetDifference = entryPrice - targetLevel;
+                        const percentageToTarget = Math.min(priceDifference / targetDifference, 1.0);
+                        tradeResult = percentageToTarget * riskAmount * rewardMultiple * effectiveLeverage;
+                        isWin = true;
+                    } else {
+                        // We're in loss - calculate relative to theoretical risk
+                        const maxRiskDistance = stopReference - entryPrice;
+                        // Can lose more than theoretical risk since no actual stop loss
+                        const actualLossPercentage = Math.abs(priceDifference) / maxRiskDistance;
+                        tradeResult = -actualLossPercentage * riskAmount * effectiveLeverage;
+                        isWin = false;
+                    }
                 }
             }
             
-            // Update capital and total P/L
-            statistics.currentCapital += tradeResult;
-            statistics.totalProfitLoss += tradeResult;
+            // If we're exiting the trade, update statistics
+            if (shouldExit) {
+                if (isWin) {
+                    if (position === 'long') {
+                        statistics.longWins += 1;
+                    } else {
+                        statistics.shortWins += 1;
+                    }
+                    statistics.totalProfit += tradeResult;
+                } else {
+                    if (position === 'long') {
+                        statistics.longLosses += 1;
+                    } else {
+                        statistics.shortLosses += 1;
+                    }
+                    statistics.totalLoss += Math.abs(tradeResult);
+                }
+                
+                // Update capital and total P/L
+                statistics.currentCapital += tradeResult;
+                statistics.totalProfitLoss += tradeResult;
+                
+                // Return trade result info
+                return {
+                    position,
+                    entryPrice,
+                    exitPrice,
+                    targetLevel,
+                    pnl: tradeResult,
+                    isWin,
+                    isTargetHit,
+                    exitReason
+                };
+            }
             
-            // Calculate efficiency
-            statistics.efficiency = statistics.totalRiskedAmount > 0 ? 
-                (statistics.totalProfitLoss / statistics.totalRiskedAmount) * 100 : 0;
-            
-            // Return trade result info
-            return {
-                position,
-                entryPrice,
-                exitPrice: nextPrice,
-                stopLevel,
-                targetLevel,
-                pnl: tradeResult,
-                isWin,
-                isTargetHit
-            };
+            // If we didn't exit, return null to indicate trade is still open
+            return null;
         };
         
-        // Calculate overall statistics
-        const calculateStats = () => {
-            const totalLongTrades = statistics.longWins + statistics.longLosses;
-            const totalShortTrades = statistics.shortWins + statistics.shortLosses;
-            const totalTrades = totalLongTrades + totalShortTrades;
+        /**
+         * Function to simulate backtest over historical data
+         * Added extensive logging for debugging
+         *
+         * @param {Array} historicalCandles - Array of historical candles
+         * @return {Object} - Backtest results
+         */
+        const runBacktest = (historicalCandles) => {
+            console.log("******** STARTING BACKTEST ********");
+            console.log(`Total candles to process: ${historicalCandles.length}`);
             
-            const longWinRate = totalLongTrades > 0 ? (statistics.longWins / totalLongTrades) * 100 : 0;
-            const shortWinRate = totalShortTrades > 0 ? (statistics.shortWins / totalShortTrades) * 100 : 0;
-            const overallWinRate = totalTrades > 0 ? 
-                ((statistics.longWins + statistics.shortWins) / totalTrades) * 100 : 0;
-            
-            return {
-                ...statistics,
-                totalLongTrades,
-                totalShortTrades,
-                totalTrades,
-                longWinRate,
-                shortWinRate,
-                overallWinRate
+            // Reset statistics
+            statistics = {
+                longWins: 0,
+                longLosses: 0,
+                shortWins: 0,
+                shortLosses: 0,
+                longTargetHits: 0,
+                shortTargetHits: 0,
+                totalProfit: 0,
+                totalLoss: 0,
+                currentCapital: initialCapital,
+                totalProfitLoss: 0,
+                totalRiskedAmount: 0,
+                efficiency: 0,
+                initialCapital: initialCapital
             };
+            
+            console.log("Statistics initialized with capital:", initialCapital);
+            
+            // Track current open position
+            let currentPosition = null;
+            
+            // Store trade history
+            const tradeHistory = [];
+            
+            console.log("Processing candles for backtest...");
+            
+            // Calculate lookback period
+            const lookbackPeriod = period + length;
+            console.log(`Using lookback period of ${lookbackPeriod} candles`);
+            
+            // Debug counters
+            let candlesProcessed = 0;
+            let signalsGenerated = 0;
+            let tradesExecuted = 0;
+            
+            // Process each candle
+            const progressInterval = Math.max(1, Math.floor(historicalCandles.length / 20)); // Log every 5%
+            
+            try {
+                for (let i = 0; i < historicalCandles.length; i++) {
+                    // Skip candles until we have enough data for indicators
+                    if (i < lookbackPeriod) {
+                        continue;
+                    }
+                    
+                    // Show progress periodically
+                    if (i % progressInterval === 0 || i === historicalCandles.length - 1) {
+                        const progressPercent = Math.round((i / historicalCandles.length) * 100);
+                        console.log(`Processing candle ${i} of ${historicalCandles.length} (${progressPercent}%)`);
+                        console.log(`Stats so far: ${tradesExecuted} trades, Capital: ${statistics.currentCapital.toFixed(2)}`);
+                    }
+                    
+                    // Get current candle
+                    const currentCandle = historicalCandles[i];
+                    if (!currentCandle) {
+                        console.warn(`Candle at index ${i} is undefined, skipping`);
+                        continue;
+                    }
+                    
+                    candlesProcessed++;
+                    
+                    // Create slice of data up to current candle for indicator calculation
+                    try {
+                        // Extract relevant data for this candle window
+                        const dataSlice = {
+                            open: historicalCandles.slice(0, i + 1).map(c => c.open),
+                            high: historicalCandles.slice(0, i + 1).map(c => c.high),
+                            low: historicalCandles.slice(0, i + 1).map(c => c.low),
+                            close: historicalCandles.slice(0, i + 1).map(c => c.close)
+                        };
+                        
+                        if (i % progressInterval === 0) {
+                            console.log(`Created data slice with ${dataSlice.close.length} candles`);
+                        }
+                        
+                        // Calculate indicators for current slice
+                        const indicatorResult = trend_sniper(dataSlice, length, period, multiplier, fast_multiplier);
+                        
+                        // Get current signal if any
+                        const currentSignal = indicatorResult.signal;
+                        
+                        if (currentSignal) {
+                            signalsGenerated++;
+                            if (i % progressInterval === 0) {
+                                console.log(`Signal generated at candle ${i}: ${currentSignal.position}`);
+                            }
+                        }
+                        
+                        // If we have an open position, check if we should close it
+                        if (currentPosition) {
+                            try {
+                                // Process the current candle to see if we should exit
+                                const tradeResult = processTrade(currentPosition, currentCandle, currentSignal);
+                                
+                                // If we have a trade result, the position was closed
+                                if (tradeResult) {
+                                    tradesExecuted++;
+                                    // Console logging for debug
+                                    console.log(`Trade closed at candle ${i}: ${tradeResult.position} position, PnL: ${tradeResult.pnl.toFixed(2)}, Reason: ${tradeResult.exitReason}`);
+                                    
+                                    // Add to trade history
+                                    tradeHistory.push({
+                                        ...tradeResult,
+                                        candleIndex: currentPosition.candleIndex,
+                                        exitCandleIndex: i
+                                    });
+                                    
+                                    // Track risk amount for this trade
+                                    statistics.totalRiskedAmount += currentPosition.riskAmount;
+                                    
+                                    // Clear current position
+                                    currentPosition = null;
+                                } else if (i % progressInterval === 0) {
+                                    console.log(`Position still open at candle ${i}: ${currentPosition.position} from candle ${currentPosition.candleIndex}`);
+                                }
+                            } catch (tradeError) {
+                                console.error(`Error processing trade at candle ${i}:`, tradeError);
+                                // Continue to next candle even if there's an error
+                            }
+                        }
+                        
+                        // If we don't have a position and we have a signal, open a new position
+                        if (!currentPosition && currentSignal) {
+                            // Get or calculate necessary values
+                            const entryPrice = currentCandle.close;
+                            let stopReference, targetLevel;
+                            
+                            // Determine stop reference based on scalp mode
+                            if (useScalpMode && scalpLine && scalpLine.length > 0) {
+                                // Use the last value of the scalp line calculated above
+                                stopReference = scalpLine[scalpLine.length - 1];
+                            } else if (jATR && jATR.length > 0) {
+                                // Use the last value of jATR calculated above
+                                stopReference = jATR[jATR.length - 1];
+                            } else {
+                                // Fallback if indicators aren't available (shouldn't happen)
+                                console.warn(`Using fallback stop reference at candle ${i}`);
+                                stopReference = currentSignal.position === 'long' 
+                                    ? entryPrice * 0.98  // 2% below for long
+                                    : entryPrice * 1.02; // 2% above for short
+                            }
+                            
+                            // Calculate risk amount for this trade
+                            const riskAmount = (statistics.currentCapital * riskPerTrade) / 100;
+                            
+                            // Open new position
+                            if (currentSignal.position === 'long') {
+                                const longRisk = Math.max(0.001, entryPrice - stopReference); // Ensure risk is positive
+                                targetLevel = entryPrice + (longRisk * rewardMultiple);
+                                
+                                currentPosition = {
+                                    position: 'long',
+                                    location: entryPrice,
+                                    stopReference,  // Not an actual stop, just for R:R
+                                    targetLevel,
+                                    riskAmount,
+                                    candleIndex: i
+                                };
+                                
+                                console.log(`Opening LONG position at candle ${i}, price: ${entryPrice.toFixed(2)}, Target: ${targetLevel.toFixed(2)}`);
+                            }
+                            else if (currentSignal.position === 'short') {
+                                const shortRisk = Math.max(0.001, stopReference - entryPrice); // Ensure risk is positive
+                                targetLevel = entryPrice - (shortRisk * rewardMultiple);
+                                
+                                currentPosition = {
+                                    position: 'short',
+                                    location: entryPrice,
+                                    stopReference,  // Not an actual stop, just for R:R
+                                    targetLevel,
+                                    riskAmount,
+                                    candleIndex: i
+                                };
+                                
+                                console.log(`Opening SHORT position at candle ${i}, price: ${entryPrice.toFixed(2)}, Target: ${targetLevel.toFixed(2)}`);
+                            }
+                        }
+                    } catch (candleError) {
+                        console.error(`Error processing candle ${i}:`, candleError);
+                        // Continue to next candle
+                    }
+                } // End of candle loop
+                
+                console.log("Finished processing all candles");
+                console.log(`Processed ${candlesProcessed} candles, generated ${signalsGenerated} signals, executed ${tradesExecuted} trades`);
+                
+                // Calculate final statistics
+                const totalLongTrades = statistics.longWins + statistics.longLosses;
+                const totalShortTrades = statistics.shortWins + statistics.shortLosses;
+                const totalTrades = totalLongTrades + totalShortTrades;
+                
+                const longWinRate = totalLongTrades > 0 ? (statistics.longWins / totalLongTrades) * 100 : 0;
+                const shortWinRate = totalShortTrades > 0 ? (statistics.shortWins / totalShortTrades) * 100 : 0;
+                const overallWinRate = totalTrades > 0 ? 
+                    ((statistics.longWins + statistics.shortWins) / totalTrades) * 100 : 0;
+                    
+                // Calculate efficiency
+                statistics.efficiency = statistics.totalRiskedAmount > 0 ? 
+                    (statistics.totalProfitLoss / statistics.totalRiskedAmount) * 100 : 0;
+                    
+                // Final statistics object
+                const finalStats = {
+                    ...statistics,
+                    totalLongTrades,
+                    totalShortTrades,
+                    totalTrades,
+                    longWinRate,
+                    shortWinRate,
+                    overallWinRate
+                };
+                
+                console.log("Backtest completed successfully");
+                console.log("Final capital:", finalStats.currentCapital.toFixed(2));
+                console.log("Total trades:", finalStats.totalTrades);
+                console.log("Win rate:", finalStats.overallWinRate.toFixed(2) + "%");
+                
+                // Return backtest results
+                return {
+                    statistics: finalStats,
+                    tradeHistory
+                };
+            } catch (backtestError) {
+                console.error("Critical error in backtest process:", backtestError);
+                // Return partial results if available
+                return {
+                    error: backtestError.message,
+                    statistics,
+                    tradeHistory
+                };
+            }
         };
         
         // Return enhanced indicator with all components
@@ -317,10 +578,12 @@ const jalgo = (source = {}, options = {}) => {
             },
             // Enhanced signal with risk management
             signal,
-            // Trade execution simulation function
-            executeTrade,
-            // Statistics calculation function
-            calculateStats,
+            // Trade processing function
+            processTrade,
+            // Backtest function
+            runBacktest,
+            // Statistics calculation
+            statistics,
             // Options used
             options: {
                 length,

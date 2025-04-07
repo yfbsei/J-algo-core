@@ -157,21 +157,6 @@ async function loadHistoricalData(filePath) {
     }
 }
 
-// Determine the actual exit reason for a trade
-function determineExitReason(activeTrade, currentBar, hasNewSignal, targetHit, stopHit) {
-    // Use the flags to determine the exit reason
-    if (targetHit) {
-        return 'Target Hit';
-    }
-    
-    if (stopHit) {
-        return 'Stop Hit';
-    }
-    
-    // If we get here, it's closed because of a signal
-    return hasNewSignal ? 'New Signal' : 'Signal Reversal';
-}
-
 // Run backtest with the given data and options
 function runBacktest(data, options = {}) {
     // Validate data
@@ -203,266 +188,62 @@ function runBacktest(data, options = {}) {
     // Add debug logging
     console.log('Merged options:', JSON.stringify(mergedOptions, null, 2));
     
-    // Storage for trade history
-    const trades = [];
-    
-    // Keep track of active trades
-    let activeTrade = null;
-    
-    // Minimum lookback period to ensure we have enough data for calculations
-    const lookbackPeriod = Math.max(
-        mergedOptions.period + mergedOptions.scalpPeriod,
-        mergedOptions.length + mergedOptions.period
-    );
-    
-    console.log(`Using lookback period of ${lookbackPeriod} candles`);
-    
-    // Check if we have enough data
-    if (data.close.length < lookbackPeriod) {
-        console.error(`Not enough data points. Need at least ${lookbackPeriod}, but got ${data.close.length}`);
-        return null;
-    }
-    
     try {
-        // Initialize with the first lookback period data
-        const initialData = {
-            open: data.open.slice(0, lookbackPeriod),
-            high: data.high.slice(0, lookbackPeriod),
-            low: data.low.slice(0, lookbackPeriod),
-            close: data.close.slice(0, lookbackPeriod)
-        };
-        
-        let algo = jalgo(initialData, mergedOptions);
-        console.log('Initial algorithm setup successful');
-        
-        // Initialize manual statistics tracking
-        const manualStats = {
-            initialCapital: mergedOptions.initialCapital,
-            currentCapital: mergedOptions.initialCapital,
-            totalProfitLoss: 0,
-            longWins: 0,
-            longLosses: 0,
-            shortWins: 0,
-            shortLosses: 0,
-            longTargetHits: 0,
-            shortTargetHits: 0,
-            totalProfit: 0,
-            totalLoss: 0,
-            totalRiskedAmount: 0
-        };
-        
-        // Iterate through the data point by point (starting after lookback period)
-        for (let i = lookbackPeriod; i < data.close.length; i++) {
-            // Create a sliding window of data for the algorithm
-            const windowData = {
-                open: data.open.slice(0, i + 1),
-                high: data.high.slice(0, i + 1),
-                low: data.low.slice(0, i + 1),
-                close: data.close.slice(0, i + 1)
-            };
-            
-            // Run the algorithm on the current window of data
-            algo = jalgo(windowData, mergedOptions);
-            
-            if (!algo) {
-                console.error('Algorithm returned null/undefined at index', i);
-                continue;
+        // Convert OHLC format to candles format with progress indicator
+        console.log('Converting data to candle format...');
+        const candles = [];
+        for (let i = 0; i < data.close.length; i++) {
+            // Add progress indicator every 1000 candles
+            if (i % 1000 === 0) {
+                console.log(`Processing candle ${i} of ${data.close.length} (${Math.round(i/data.close.length*100)}%)`);
             }
             
-            // Get the current bar's data
-            const currentBar = {
+            candles.push({
                 date: data.date ? data.date[i] : i,
                 open: data.open[i],
                 high: data.high[i],
                 low: data.low[i],
-                close: data.close[i]
+                close: data.close[i],
+                volume: data.volume ? data.volume[i] : 0
+            });
+        }
+        console.log('Data conversion complete.');
+
+        // Initialize jalgo with the complete dataset and options
+        console.log('Initializing algorithm...');
+        const algo = jalgo({
+            open: data.open,
+            high: data.high,
+            low: data.low,
+            close: data.close
+        }, mergedOptions);
+
+        // Check if the algo was properly initialized
+        if (!algo) {
+            console.error('Failed to initialize algorithm');
+            return null;
+        }
+
+        // Check if runBacktest function is available
+        if (algo.runBacktest && typeof algo.runBacktest === 'function') {
+            // Use the built-in runBacktest function
+            console.log('Using built-in runBacktest function...');
+            return {
+                trades: algo.runBacktest(candles).tradeHistory || [],
+                statistics: algo.runBacktest(candles).statistics || {},
+                options: mergedOptions
             };
-            
-            // Check if we have an active trade
-            if (activeTrade) {
-                // Check if we should close the active trade
-                if (
-                    // Check if there's a signal in the opposite direction
-                    (algo.signal && algo.signal.position !== activeTrade.position) ||
-                    // Or if target is hit
-                    (activeTrade.position === 'long' && currentBar.high >= activeTrade.targetLevel) ||
-                    (activeTrade.position === 'short' && currentBar.low <= activeTrade.targetLevel) ||
-                    // Or if stop is hit
-                    (activeTrade.position === 'long' && currentBar.low <= activeTrade.stopLevel) ||
-                    (activeTrade.position === 'short' && currentBar.high >= activeTrade.stopLevel)
-                ) {
-                    // Determine the exit price
-                    let exitPrice;
-                    let targetHit = false;
-                    let stopHit = false;
-                    
-                    if (activeTrade.position === 'long') {
-                        if (currentBar.high >= activeTrade.targetLevel) {
-                            // Target hit - exit at target level
-                            exitPrice = activeTrade.targetLevel;
-                            targetHit = true;
-                        } else if (currentBar.low <= activeTrade.stopLevel) {
-                            // Stop hit - exit at stop level
-                            exitPrice = activeTrade.stopLevel;
-                            stopHit = true;
-                        } else {
-                            // Signal reversal - exit at open of the bar
-                            exitPrice = currentBar.open;
-                        }
-                    } else { // short position
-                        if (currentBar.low <= activeTrade.targetLevel) {
-                            // Target hit - exit at target level
-                            exitPrice = activeTrade.targetLevel;
-                            targetHit = true;
-                        } else if (currentBar.high >= activeTrade.stopLevel) {
-                            // Stop hit - exit at stop level
-                            exitPrice = activeTrade.stopLevel;
-                            stopHit = true;
-                        } else {
-                            // Signal reversal - exit at open of the bar
-                            exitPrice = currentBar.open;
-                        }
-                    }
-                    
-                    // Execute the trade with the new price
-                    if (algo.executeTrade && typeof algo.executeTrade === 'function') {
-                        // Store original statistics for debugging
-                        console.log('Statistics before trade execution:', JSON.stringify(algo.calculateStats()));
-                        
-                        const tradeResult = algo.executeTrade(activeTrade, exitPrice);
-                        
-                        // Check if trade result has expected properties
-                        if (!tradeResult || typeof tradeResult !== 'object') {
-                            console.error('Trade execution did not return valid result:', tradeResult);
-                        } else {
-                            console.log('Trade executed:', JSON.stringify(tradeResult));
-                        }
-                        
-                        // Verify statistics updated correctly
-                        console.log('Statistics after trade execution:', JSON.stringify(algo.calculateStats()));
-                        
-                        // Add date and bar information to the trade
-                        const completedTrade = {
-                            ...tradeResult,
-                            entryDate: activeTrade.entryDate,
-                            exitDate: currentBar.date,
-                            entryBar: activeTrade.entryBar,
-                            exitBar: i,
-                            holdingPeriod: i - activeTrade.entryBar,
-                            exitReason: determineExitReason(
-                                activeTrade, 
-                                currentBar, 
-                                algo.signal && algo.signal.position !== activeTrade.position,
-                                targetHit,
-                                stopHit
-                            )
-                        };
-                        
-                        // Update trade properties based on P&L
-                        if (completedTrade.pnl > 0) {
-                            completedTrade.isWin = true;
-                            completedTrade.isTargetHit = targetHit;
-                        } else {
-                            completedTrade.isWin = false;
-                            completedTrade.isTargetHit = false; // A loss can't be a target hit
-                        }
-                        
-                        // Add to trade history
-                        trades.push(completedTrade);
-                        
-                        // Manually update statistics if not being tracked properly
-                        if (completedTrade.pnl > 0) {
-                            if (completedTrade.position === 'long') {
-                                manualStats.longWins++;
-                                if (targetHit) {
-                                    manualStats.longTargetHits++;
-                                }
-                            } else {
-                                manualStats.shortWins++;
-                                if (targetHit) {
-                                    manualStats.shortTargetHits++;
-                                }
-                            }
-                            manualStats.totalProfit += Math.abs(completedTrade.pnl);
-                        } else {
-                            if (completedTrade.position === 'long') {
-                                manualStats.longLosses++;
-                            } else {
-                                manualStats.shortLosses++;
-                            }
-                            manualStats.totalLoss += Math.abs(completedTrade.pnl);
-                        }
-                        
-                        // Update capital
-                        manualStats.currentCapital += completedTrade.pnl;
-                        manualStats.totalProfitLoss += completedTrade.pnl;
-                    } else {
-                        console.error('executeTrade function not available in algo:', algo);
-                    }
-                    
-                    // Reset active trade
-                    activeTrade = null;
-                }
-            }
-            
-            // Check for new signal
-            if (algo.signal && !activeTrade) {
-                // Create new active trade from signal
-                activeTrade = {
-                    ...algo.signal,
-                    entryDate: currentBar.date,
-                    entryBar: i
-                };
-                
-                // Track risk amount
-                if (algo.signal.riskAmount) {
-                    manualStats.totalRiskedAmount += algo.signal.riskAmount;
-                }
-            }
         }
         
-        // Calculate final statistics
-        let statistics = {};
-        if (algo && algo.calculateStats && typeof algo.calculateStats === 'function') {
-            statistics = algo.calculateStats();
-            
-            // Log statistics for debugging
-            console.log('Statistics from algo.calculateStats():', JSON.stringify(statistics));
-            
-            // If the internal statistics aren't updating correctly, use our manually tracked statistics
-            if (statistics.totalTrades === 0 && trades.length > 0) {
-                console.log('Using manually tracked statistics as algo statistics appear to be empty');
-                
-                // Calculate additional manual statistics
-                manualStats.totalLongTrades = manualStats.longWins + manualStats.longLosses;
-                manualStats.totalShortTrades = manualStats.shortWins + manualStats.shortLosses;
-                manualStats.totalTrades = manualStats.totalLongTrades + manualStats.totalShortTrades;
-                
-                manualStats.longWinRate = manualStats.totalLongTrades > 0 ? 
-                    (manualStats.longWins / manualStats.totalLongTrades) * 100 : 0;
-                    
-                manualStats.shortWinRate = manualStats.totalShortTrades > 0 ? 
-                    (manualStats.shortWins / manualStats.totalShortTrades) * 100 : 0;
-                    
-                manualStats.overallWinRate = manualStats.totalTrades > 0 ? 
-                    ((manualStats.longWins + manualStats.shortWins) / manualStats.totalTrades) * 100 : 0;
-                
-                manualStats.efficiency = manualStats.totalRiskedAmount > 0 ? 
-                    (manualStats.totalProfitLoss / manualStats.totalRiskedAmount) * 100 : 0;
-                
-                // Use manually tracked statistics instead
-                statistics = manualStats;
-            }
-        } else {
-            console.error('calculateStats function not available in algo object:', algo);
-            // Use manually tracked statistics as fallback
-            statistics = manualStats;
-        }
+        // Use the custom backtest runner with progress indicator
+        console.log('Starting backtest calculation...');
+        const results = runBacktestWithProgress(algo, candles, mergedOptions);
+        console.log('Backtest calculation complete.');
         
-        // Return all the information from the backtest
+        // Return the backtest results along with the options used
         return {
-            trades,
-            statistics,
+            trades: results.tradeHistory,
+            statistics: results.statistics,
             options: mergedOptions
         };
     } catch (error) {
@@ -472,6 +253,266 @@ function runBacktest(data, options = {}) {
             options: mergedOptions
         };
     }
+}
+
+// Custom function to run backtest with progress indicators
+function runBacktestWithProgress(algo, candles, options) {
+    // Check if algo exists and has processTrade method
+    if (!algo) {
+        console.error('Algorithm object is null or undefined');
+        return { tradeHistory: [], statistics: {} };
+    }
+    
+    // Get the processTrade function from the algo
+    const processTrade = algo.processTrade;
+    
+    if (!processTrade || typeof processTrade !== 'function') {
+        console.error('processTrade function not available in algo');
+        // Fall back to the built-in runBacktest if available
+        if (algo.runBacktest && typeof algo.runBacktest === 'function') {
+            console.log('Falling back to built-in runBacktest...');
+            return algo.runBacktest(candles);
+        } else {
+            console.error('No suitable backtest function available');
+            return { tradeHistory: [], statistics: {} };
+        }
+    }
+    
+    // Initialize statistics
+    let statistics = {
+        longWins: 0,
+        longLosses: 0,
+        shortWins: 0,
+        shortLosses: 0,
+        longTargetHits: 0,
+        shortTargetHits: 0,
+        totalProfit: 0,
+        totalLoss: 0,
+        currentCapital: options.initialCapital || 1000,
+        totalProfitLoss: 0,
+        totalRiskedAmount: 0,
+        efficiency: 0,
+        initialCapital: options.initialCapital || 1000
+    };
+    
+    // Store trade history
+    const tradeHistory = [];
+    
+    // Track current open position
+    let currentPosition = null;
+    
+    // Minimum lookback period
+    const lookbackPeriod = Math.max(
+        (options.period || 16) + (options.scalpPeriod || 21),
+        (options.length || 6) + (options.period || 16)
+    );
+    
+    console.log(`Using lookback period of ${lookbackPeriod} candles`);
+    
+    // Process each candle
+    const progressInterval = Math.max(1, Math.floor(candles.length / 100)); // Show progress every 1%
+    
+    for (let i = lookbackPeriod; i < candles.length; i++) {
+        // Show progress
+        if (i % progressInterval === 0 || i === candles.length - 1) {
+            const progressPercent = Math.round((i - lookbackPeriod) / (candles.length - lookbackPeriod) * 100);
+            console.log(`Processing candle ${i} of ${candles.length} (${progressPercent}%)`);
+        }
+        
+        const currentCandle = candles[i];
+        if (!currentCandle) {
+            console.warn(`Candle at index ${i} is undefined, skipping`);
+            continue;
+        }
+        
+        // Create slice of data up to current candle for indicator calculation
+        try {
+            const dataSlice = {
+                open: candles.slice(0, i + 1).map(c => c?.open || 0),
+                high: candles.slice(0, i + 1).map(c => c?.high || 0),
+                low: candles.slice(0, i + 1).map(c => c?.low || 0),
+                close: candles.slice(0, i + 1).map(c => c?.close || 0)
+            };
+            
+            // Calculate indicators for current slice
+            const indicatorResult = jalgo(dataSlice, options);
+            
+            // Get current signal if any - with null checks
+            const currentSignal = indicatorResult && indicatorResult.signal ? indicatorResult.signal : null;
+            
+            // If we have an open position, check if we should close it
+            if (currentPosition) {
+                try {
+                    // Process the current candle to see if we should exit
+                    const tradeResult = processTrade(currentPosition, currentCandle, currentSignal);
+                    
+                    // If we have a trade result, the position was closed
+                    if (tradeResult) {
+                        // Add candle index information
+                        tradeResult.entryCandle = currentPosition.candleIndex;
+                        tradeResult.exitCandle = i;
+                        
+                        // Add to trade history
+                        tradeHistory.push(tradeResult);
+                        
+                        // Show trade completion
+                        console.log(`Trade closed: ${tradeResult.position} position, PnL: ${tradeResult.pnl ? tradeResult.pnl.toFixed(2) : 'N/A'}, Reason: ${tradeResult.exitReason || 'Unknown'}`);
+                        
+                        // Clear current position
+                        currentPosition = null;
+                    }
+                } catch (error) {
+                    console.error(`Error processing trade at candle ${i}:`, error);
+                    // Continue to next candle
+                }
+            }
+            
+            // If we don't have a position and we have a signal, open a new position
+            if (!currentPosition && currentSignal) {
+                try {
+                    // Handle possible undefined values safely
+                    let stopReference = null;
+                    
+                    // If scalp mode is enabled and scalpLine exists, use it as reference
+                    if (options.useScalpMode && 
+                        indicatorResult && 
+                        indicatorResult.indicator && 
+                        indicatorResult.indicator.scalpLine && 
+                        Array.isArray(indicatorResult.indicator.scalpLine) && 
+                        indicatorResult.indicator.scalpLine.length > 0) {
+                        stopReference = indicatorResult.indicator.scalpLine[indicatorResult.indicator.scalpLine.length - 1];
+                    } 
+                    // Else use jATR if available
+                    else if (indicatorResult && 
+                             indicatorResult.indicator && 
+                             indicatorResult.indicator.jATR && 
+                             Array.isArray(indicatorResult.indicator.jATR) && 
+                             indicatorResult.indicator.jATR.length > 0) {
+                        stopReference = indicatorResult.indicator.jATR[indicatorResult.indicator.jATR.length - 1];
+                    } 
+                    // Fallback to a default value based on close price
+                    else {
+                        stopReference = currentCandle.close * 0.98; // default reference point 2% below close
+                        console.warn(`Using fallback stop reference at candle ${i} because indicator values are missing`);
+                    }
+                    
+                    const entryPrice = currentCandle.close;
+                    
+                    // Calculate risk amount for this trade
+                    const riskAmount = (statistics.currentCapital * (options.riskPerTrade || 2)) / 100;
+                    
+                    // Open new position
+                    if (currentSignal.position === 'long') {
+                        const longRisk = Math.max(0.01, entryPrice - stopReference); // Ensure risk is positive
+                        const targetLevel = entryPrice + (longRisk * (options.rewardMultiple || 1.5));
+                        
+                        currentPosition = {
+                            position: 'long',
+                            location: entryPrice,
+                            stopReference,  // Not an actual stop, just for R:R
+                            targetLevel,
+                            riskAmount,
+                            candle: currentCandle,
+                            candleIndex: i
+                        };
+                        
+                        console.log(`Opening LONG position at ${entryPrice.toFixed(2)}, Target: ${targetLevel.toFixed(2)}`);
+                    }
+                    else if (currentSignal.position === 'short') {
+                        const shortRisk = Math.max(0.01, stopReference - entryPrice); // Ensure risk is positive
+                        const targetLevel = entryPrice - (shortRisk * (options.rewardMultiple || 1.5));
+                        
+                        currentPosition = {
+                            position: 'short',
+                            location: entryPrice,
+                            stopReference,  // Not an actual stop, just for R:R
+                            targetLevel,
+                            riskAmount,
+                            candle: currentCandle,
+                            candleIndex: i
+                        };
+                        
+                        console.log(`Opening SHORT position at ${entryPrice.toFixed(2)}, Target: ${targetLevel.toFixed(2)}`);
+                    }
+                } catch (error) {
+                    console.error(`Error opening position at candle ${i}:`, error);
+                    // Continue to next candle
+                }
+            }
+        } catch (error) {
+            console.error(`Error processing candle ${i}:`, error);
+            // Continue to next candle
+        }
+    }
+    
+    // Update statistics based on trade history
+    console.log(`Processing ${tradeHistory.length} completed trades for statistics...`);
+    tradeHistory.forEach((trade, index) => {
+        try {
+            // Safety checks for trade properties
+            if (!trade) {
+                console.warn(`Trade at index ${index} is undefined, skipping`);
+                return;
+            }
+            
+            // Update statistics based on trade result
+            if (trade.isWin) {
+                if (trade.position === 'long') {
+                    statistics.longWins += 1;
+                    if (trade.isTargetHit) {
+                        statistics.longTargetHits += 1;
+                    }
+                } else if (trade.position === 'short') {
+                    statistics.shortWins += 1;
+                    if (trade.isTargetHit) {
+                        statistics.shortTargetHits += 1;
+                    }
+                }
+                statistics.totalProfit += (trade.pnl || 0);
+            } else {
+                if (trade.position === 'long') {
+                    statistics.longLosses += 1;
+                } else if (trade.position === 'short') {
+                    statistics.shortLosses += 1;
+                }
+                statistics.totalLoss += Math.abs(trade.pnl || 0);
+            }
+            
+            // Update total P/L
+            statistics.totalProfitLoss += (trade.pnl || 0);
+            
+            // Track risked amount
+            statistics.totalRiskedAmount += (trade.riskAmount || 0);
+        } catch (error) {
+            console.error(`Error processing trade statistics for trade ${index}:`, error);
+        }
+    });
+    
+    // Update final capital
+    statistics.currentCapital = statistics.initialCapital + statistics.totalProfitLoss;
+    
+    // Calculate efficiency
+    statistics.efficiency = statistics.totalRiskedAmount > 0 ? 
+        (statistics.totalProfitLoss / statistics.totalRiskedAmount) * 100 : 0;
+        
+    // Calculate trade count statistics
+    statistics.totalLongTrades = statistics.longWins + statistics.longLosses;
+    statistics.totalShortTrades = statistics.shortWins + statistics.shortLosses;
+    statistics.totalTrades = statistics.totalLongTrades + statistics.totalShortTrades;
+    statistics.longWinRate = statistics.totalLongTrades > 0 ? 
+        (statistics.longWins / statistics.totalLongTrades) * 100 : 0;
+    statistics.shortWinRate = statistics.totalShortTrades > 0 ? 
+        (statistics.shortWins / statistics.totalShortTrades) * 100 : 0;
+    statistics.overallWinRate = statistics.totalTrades > 0 ? 
+        ((statistics.longWins + statistics.shortWins) / statistics.totalTrades) * 100 : 0;
+    
+    console.log(`Backtest completed: ${tradeHistory.length} trades executed`);
+    
+    // Return results
+    return {
+        statistics,
+        tradeHistory
+    };
 }
 
 // Print backtest results in a readable format
@@ -546,26 +587,26 @@ function printBacktestResults(results) {
     if (!results.trades || !Array.isArray(results.trades) || results.trades.length === 0) {
         console.log('No trades were executed in this backtest.');
     } else {
-        console.log('| #  | Type  | Entry Date | Exit Date  | Entry | Exit  | Risk  | P/L   | Exit Reason  | Bars |');
-        console.log('|-----|-------|------------|------------|-------|-------|-------|-------|--------------|------|');
+        console.log('Exit Reason | Bars | PnL');
+        console.log('----------------------------------------');
         
         results.trades.forEach((trade, index) => {
-            // Safely access trade properties with defaults
-            const entryDate = trade.entryDate ? 
-                (typeof trade.entryDate === 'string' ? trade.entryDate.substring(0, 10) : trade.entryDate) : 'N/A';
-            const exitDate = trade.exitDate ? 
-                (typeof trade.exitDate === 'string' ? trade.exitDate.substring(0, 10) : trade.exitDate) : 'N/A';
-            const position = trade.position || 'unknown';
-            const entryPrice = trade.entryPrice !== undefined ? trade.entryPrice.toFixed(2) : 'N/A';
-            const exitPrice = trade.exitPrice !== undefined ? trade.exitPrice.toFixed(2) : 'N/A';
-            const stopLevel = trade.stopLevel !== undefined ? trade.stopLevel.toFixed(2) : 'N/A';
-            const pnl = trade.pnl !== undefined ? trade.pnl.toFixed(2) : 'N/A';
-            const exitReason = trade.exitReason || 'Unknown';
-            const holdingPeriod = trade.holdingPeriod !== undefined ? trade.holdingPeriod.toString() : 'N/A';
+            if (!trade) {
+                console.log(`[Trade ${index + 1}] Invalid trade data`);
+                return;
+            }
             
-            console.log(
-                `| ${(index + 1).toString().padEnd(3)} | ${position.padEnd(5)} | ${entryDate.toString().padEnd(10)} | ${exitDate.toString().padEnd(10)} | ${entryPrice.padEnd(5)} | ${exitPrice.padEnd(5)} | ${stopLevel.padEnd(5)} | ${pnl.padEnd(5)} | ${exitReason.padEnd(12)} | ${holdingPeriod.padEnd(4)} |`
-            );
+            // Calculate bars held (if we have entry and exit data)
+            const bars = trade.entryCandle !== undefined && trade.exitCandle !== undefined 
+                ? trade.exitCandle - trade.entryCandle
+                : 'N/A';
+                
+            // Format PnL with sign
+            const pnlStr = trade.pnl !== undefined 
+                ? (trade.pnl >= 0 ? `+${trade.pnl.toFixed(2)}` : `${trade.pnl.toFixed(2)}`)
+                : 'N/A';
+                
+            console.log(`${(trade.exitReason || 'Unknown').padEnd(12)} | ${bars.toString().padEnd(4)} | ${pnlStr}`);
         });
     }
     
@@ -676,24 +717,26 @@ async function main() {
             // Export trades to CSV for easier analysis in spreadsheet software
             console.log('Exporting trades to CSV...');
             
-            const csvHeader = 'trade_number,position,entry_date,exit_date,entry_price,exit_price,stop_level,target_level,pnl,is_win,is_target_hit,exit_reason,holding_period\n';
+            const csvHeader = 'trade_number,position,entry_date,exit_date,entry_price,exit_price,target_level,pnl,is_win,is_target_hit,exit_reason\n';
             
             const csvRows = backtestResults.trades.map((trade, index) => {
+                if (!trade) {
+                    return `${index + 1},invalid,,,,,,,,,`;
+                }
+                
                 // Safely access trade properties
                 const position = trade.position || 'unknown';
                 const entryDate = trade.entryDate || '';
                 const exitDate = trade.exitDate || '';
                 const entryPrice = trade.entryPrice !== undefined ? trade.entryPrice : '';
                 const exitPrice = trade.exitPrice !== undefined ? trade.exitPrice : '';
-                const stopLevel = trade.stopLevel !== undefined ? trade.stopLevel : '';
                 const targetLevel = trade.targetLevel !== undefined ? trade.targetLevel : '';
                 const pnl = trade.pnl !== undefined ? trade.pnl : '';
                 const isWin = trade.isWin !== undefined ? trade.isWin : '';
                 const isTargetHit = trade.isTargetHit !== undefined ? trade.isTargetHit : '';
                 const exitReason = trade.exitReason || '';
-                const holdingPeriod = trade.holdingPeriod !== undefined ? trade.holdingPeriod : '';
                 
-                return `${index + 1},${position},${entryDate},${exitDate},${entryPrice},${exitPrice},${stopLevel},${targetLevel},${pnl},${isWin},${isTargetHit},${exitReason},${holdingPeriod}`;
+                return `${index + 1},${position},${entryDate},${exitDate},${entryPrice},${exitPrice},${targetLevel},${pnl},${isWin},${isTargetHit},${exitReason}`;
             }).join('\n');
             
             await fs.writeFile('./backtest results/trades.csv', csvHeader + csvRows);
