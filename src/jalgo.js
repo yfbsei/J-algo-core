@@ -173,6 +173,7 @@ const calculateScalpLine = (defATR, var_ma, period = 21) => {
 const generateSignal = (var_ma, defATR, close) => {
     // Only generate signals if we have enough data points
     if (var_ma.length < 2 || defATR.length < 2 || close.length < 1) {
+        console.log("Not enough data points for signal generation");
         return false;
     }
 
@@ -183,8 +184,15 @@ const generateSignal = (var_ma, defATR, close) => {
     const previous_defATR = defATR[defATR.length - 2];
     const current_close = close[close.length - 1];
 
+    // Debug log
+    console.log("Signal check - current_var_ma:", current_var_ma, "current_defATR:", current_defATR);
+    console.log("Signal check - previous_var_ma:", previous_var_ma, "previous_defATR:", previous_defATR);
+    console.log("Cross conditions - long:", current_var_ma > current_defATR && previous_var_ma <= previous_defATR);
+    console.log("Cross conditions - short:", current_var_ma < current_defATR && previous_var_ma >= previous_defATR);
+
     // Cross over - bullish signal
     if (current_var_ma > current_defATR && previous_var_ma <= previous_defATR) {
+        console.log("LONG SIGNAL GENERATED");
         return {
             order: "market",
             position: 'long',
@@ -193,6 +201,7 @@ const generateSignal = (var_ma, defATR, close) => {
     } 
     // Cross under - bearish signal
     else if (current_var_ma < current_defATR && previous_var_ma >= previous_defATR) {
+        console.log("SHORT SIGNAL GENERATED");
         return {
             order: "market",
             position: 'short',
