@@ -13,17 +13,6 @@ import jAlgo from './src/jalgo.js';
 // Export the main algorithm as the default export
 export default jAlgo;
 
-// Also export any helper functions or utilities
-export { 
-  SATR, 
-  variable_moving_average, 
-  calculateScalpLine, 
-  generateSignal, 
-  initializeState, 
-  processBar, 
-  calculateStats 
-} from './src/jalgo.js';
-
 /**
  * Main entry point for the J-algo-core package
  * @typedef {Object} JAlgoResult
