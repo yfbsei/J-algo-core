@@ -527,6 +527,14 @@ class Jalgo {
             
             // Run the trading algorithm
             const res = trend_sniper(this.initialCandles);
+            console.log({
+                jATR: res.jATR.slice(-3),
+                var_ma: res.var_ma.slice(-3),
+                jATR_sma: res.jATR_sma.slice(-3),
+                fast_jATR_sma: res.fast_jATR_sma.slice(-3),
+                signal: res.signal
+            }
+            );
             
             if (!res || !res.signal) {
                 return false;
