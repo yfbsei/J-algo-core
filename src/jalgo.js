@@ -15,6 +15,10 @@ class RiskRewardManager {
         this.leverageAmount = options.leverageAmount || 1.0;
         this.useScalpMode = options.useScalpMode || false;
         
+        // Event callbacks
+        this.onPositionOpen = options.onPositionOpen || null;
+        this.onPositionClosed = options.onPositionClosed || null;
+        
         // Internal state
         this.currentCapital = this.initialCapital;
         this.totalProfitLoss = 0.0;
@@ -107,275 +111,294 @@ class RiskRewardManager {
         }
     }
     
-
-/**
- * Handle a new trading signal
- * @param {Object} res - Result from trend_sniper with signal info
- * @returns {Object|string} - Information about the handled signal or error
- */
-handleNewSignal(res = {}) {
-    try {
-        if (!res.signal) return "no signal";
-        
-        // If there's an opposing position, close it first with the actual current price
-        if (res.signal.position === "long" && this.inShortTrade) {
-            // Use the actual signal location (current price) instead of jATR
-            const exitPrice = res.signal.location;
-            this.closePosition("short", exitPrice, "signal");
-        } else if (res.signal.position === "short" && this.inLongTrade) {
-            // Use the actual signal location (current price) instead of jATR
-            const exitPrice = res.signal.location;
-            this.closePosition("long", exitPrice, "signal");
+    /**
+     * Handle a new trading signal
+     * @param {Object} res - Result from trend_sniper with signal info
+     * @returns {Object|string} - Information about the handled signal or error
+     */
+    handleNewSignal(res = {}) {
+        try {
+            if (!res.signal) return "no signal";
+            
+            // If there's an opposing position, close it first with the actual current price
+            if (res.signal.position === "long" && this.inShortTrade) {
+                const exitPrice = res.signal.location;
+                this.closePosition("short", exitPrice, "signal");
+            } else if (res.signal.position === "short" && this.inLongTrade) {
+                const exitPrice = res.signal.location;
+                this.closePosition("long", exitPrice, "signal");
+            }
+            
+            let result = null;
+            
+            // Process new position
+            if (res.signal.position === "long") {
+                // Open a new long position
+                this.inLongTrade = true;
+                this.longEntryPrice = res.signal.location;
+                
+                // Use appropriate reference for calculating TP
+                const refStop = this.useScalpMode ? 
+                    res.fast_jATR_sma[res.fast_jATR_sma.length - 1] : 
+                    res.jATR[res.jATR.length - 1];
+                
+                this.longStopReference = refStop;
+                this.longTargetLevel = this.calculateTakeProfit_level(this.longEntryPrice, refStop);
+                this.calculateRiskAmount();
+                
+                // Record the trade
+                const tradeInfo = {
+                    type: "long",
+                    entry: this.longEntryPrice,
+                    refStop: refStop,
+                    target: this.longTargetLevel,
+                    riskAmount: this.currentRiskAmount,
+                    timestamp: new Date().toISOString(),
+                    status: "open"
+                };
+                
+                this.tradeHistory.push(tradeInfo);
+                
+                result = {
+                    position: "long",
+                    entry: this.longEntryPrice,
+                    target: this.longTargetLevel,
+                    risk: this.currentRiskAmount,
+                    refStop: refStop,
+                    timestamp: tradeInfo.timestamp
+                };
+            }
+            else if (res.signal.position === "short") {
+                // Open a new short position
+                this.inShortTrade = true;
+                this.shortEntryPrice = res.signal.location;
+                
+                // Use appropriate reference for calculating TP
+                const refStop = this.useScalpMode ? 
+                    res.fast_jATR_sma[res.fast_jATR_sma.length - 1] : 
+                    res.jATR[res.jATR.length - 1];
+                
+                this.shortStopReference = refStop;
+                this.shortTargetLevel = this.calculateTakeProfit_level(this.shortEntryPrice, refStop);
+                this.calculateRiskAmount();
+                
+                // Record the trade
+                const tradeInfo = {
+                    type: "short",
+                    entry: this.shortEntryPrice,
+                    refStop: refStop,
+                    target: this.shortTargetLevel,
+                    riskAmount: this.currentRiskAmount,
+                    timestamp: new Date().toISOString(),
+                    status: "open"
+                };
+                
+                this.tradeHistory.push(tradeInfo);
+                
+                result = {
+                    position: "short",
+                    entry: this.shortEntryPrice,
+                    target: this.shortTargetLevel,
+                    risk: this.currentRiskAmount,
+                    refStop: refStop,
+                    timestamp: tradeInfo.timestamp
+                };
+            } else {
+                return "invalid signal position";
+            }
+            
+            // Call the onPositionOpen callback if provided and if we opened a position
+            if (result && typeof this.onPositionOpen === 'function') {
+                this.onPositionOpen(result);
+            }
+            
+            return result;
+        } catch (error) {
+            console.error("Error handling new signal:", error);
+            return "error";
         }
-        
-        // Process new position
-        if (res.signal.position === "long") {
-            // Open a new long position
-            this.inLongTrade = true;
-            this.longEntryPrice = res.signal.location;
-            
-            // Use appropriate reference for calculating TP
-            const refStop = this.useScalpMode ? 
-                res.fast_jATR_sma[res.fast_jATR_sma.length - 1] : 
-                res.jATR[res.jATR.length - 1];
-            
-            this.longStopReference = refStop;
-            this.longTargetLevel = this.calculateTakeProfit_level(this.longEntryPrice, refStop);
-            this.calculateRiskAmount();
-            
-            // Record the trade
-            const tradeInfo = {
-                type: "long",
-                entry: this.longEntryPrice,
-                refStop: refStop,
-                target: this.longTargetLevel,
-                riskAmount: this.currentRiskAmount,
-                timestamp: new Date().toISOString(),
-                status: "open"
-            };
-            
-            this.tradeHistory.push(tradeInfo);
-            
-            return {
-                position: "long",
-                entry: this.longEntryPrice,
-                target: this.longTargetLevel,
-                risk: this.currentRiskAmount
-            };
-        }
-        else if (res.signal.position === "short") {
-            // Open a new short position
-            this.inShortTrade = true;
-            this.shortEntryPrice = res.signal.location;
-            
-            // Use appropriate reference for calculating TP
-            const refStop = this.useScalpMode ? 
-                res.fast_jATR_sma[res.fast_jATR_sma.length - 1] : 
-                res.jATR[res.jATR.length - 1];
-            
-            this.shortStopReference = refStop;
-            this.shortTargetLevel = this.calculateTakeProfit_level(this.shortEntryPrice, refStop);
-            this.calculateRiskAmount();
-            
-            // Record the trade
-            const tradeInfo = {
-                type: "short",
-                entry: this.shortEntryPrice,
-                refStop: refStop,
-                target: this.shortTargetLevel,
-                riskAmount: this.currentRiskAmount,
-                timestamp: new Date().toISOString(),
-                status: "open"
-            };
-            
-            this.tradeHistory.push(tradeInfo);
-            
-            return {
-                position: "short",
-                entry: this.shortEntryPrice,
-                target: this.shortTargetLevel,
-                risk: this.currentRiskAmount
-            };
-        } else {
-            return "invalid signal position";
-        }
-    } catch (error) {
-        console.error("Error handling new signal:", error);
-        return "error";
     }
-}
 
-/**
- * Close an existing position
- * @param {string} positionType - "long" or "short"
- * @param {number} exitPrice - Price at which to exit the position
- * @param {string} [closeReason="signal"] - Reason for closing position: "signal", "tp_hit", or "manual"
- * @returns {Object} - Information about the closed position
- */
-closePosition(positionType, exitPrice, closeReason = "signal") {
-    try {
-        if (positionType === "long" && this.inLongTrade) {
-            // Calculate P&L for the long position
-            const priceDifference = exitPrice - this.longEntryPrice;
-            const directionMultiplier = priceDifference >= 0 ? 1 : -1;
+    /**
+     * Close an existing position
+     * @param {string} positionType - "long" or "short"
+     * @param {number} exitPrice - Price at which to exit the position
+     * @param {string} [closeReason="signal"] - Reason for closing position: "signal", "tp_hit", or "manual"
+     * @returns {Object} - Information about the closed position
+     */
+    closePosition(positionType, exitPrice, closeReason = "signal") {
+        try {
+            let result = null;
             
-            // Calculate profit/loss based on risk amount and effective leverage
-            const refStopDifference = Math.abs(this.longEntryPrice - this.longStopReference);
-            const percentOfTarget = Math.min(Math.abs(priceDifference) / refStopDifference, this.rewardMultiple);
-            
-            // Calculate P&L based on percentage of target reached
-            const profitLoss = this.currentRiskAmount * percentOfTarget * directionMultiplier * this.getEffectiveLeverage();
-            
-            // Update statistics
-            this.currentCapital += profitLoss;
-            this.totalProfitLoss += profitLoss;
-            
-            // Determine win/loss based on target hit or direction of profitLoss
-            let isWin = false;
-            
-            if (closeReason === "tp_hit") {
-                // If closed due to TP hit, it's always a win
-                isWin = true;
-                this.longTargetHits++;
+            if (positionType === "long" && this.inLongTrade) {
+                // Calculate P&L for the long position
+                const priceDifference = exitPrice - this.longEntryPrice;
+                const directionMultiplier = priceDifference >= 0 ? 1 : -1;
+                
+                // Calculate profit/loss based on risk amount and effective leverage
+                const refStopDifference = Math.abs(this.longEntryPrice - this.longStopReference);
+                const percentOfTarget = Math.min(Math.abs(priceDifference) / refStopDifference, this.rewardMultiple);
+                
+                // Calculate P&L based on percentage of target reached
+                const profitLoss = this.currentRiskAmount * percentOfTarget * directionMultiplier * this.getEffectiveLeverage();
+                
+                // Update statistics
+                this.currentCapital += profitLoss;
+                this.totalProfitLoss += profitLoss;
+                
+                // Determine win/loss based on target hit or direction of profitLoss
+                let isWin = false;
+                
+                if (closeReason === "tp_hit") {
+                    // If closed due to TP hit, it's always a win
+                    isWin = true;
+                    this.longTargetHits++;
+                } else {
+                    // For signal or manual close, it's a win only if profitLoss > 0
+                    isWin = profitLoss > 0;
+                }
+                
+                if (isWin) {
+                    this.totalProfit += profitLoss;
+                    this.longWins++;
+                } else {
+                    this.totalLoss += Math.abs(profitLoss);
+                    this.longLosses++;
+                }
+                
+                // Update trade history
+                const lastLongTradeIndex = [...this.tradeHistory].reverse().findIndex(trade => 
+                    trade.type === "long" && trade.status === "open");
+                
+                if (lastLongTradeIndex !== -1) {
+                    const actualIndex = this.tradeHistory.length - 1 - lastLongTradeIndex;
+                    this.tradeHistory[actualIndex].exitPrice = exitPrice;
+                    this.tradeHistory[actualIndex].pnl = profitLoss;
+                    this.tradeHistory[actualIndex].status = closeReason === "tp_hit" ? "tp_hit" : "closed";
+                    this.tradeHistory[actualIndex].closeTimestamp = new Date().toISOString();
+                    this.tradeHistory[actualIndex].isWin = isWin;
+                    this.tradeHistory[actualIndex].closeReason = closeReason;
+                }
+                
+                // Reset position state
+                this.inLongTrade = false;
+                this.longEntryPrice = null;
+                this.longStopReference = null;
+                this.longTargetLevel = null;
+                
+                result = {
+                    position: "long",
+                    exit: exitPrice,
+                    pnl: profitLoss,
+                    capitalAfter: this.currentCapital,
+                    isWin: isWin,
+                    closeReason: closeReason
+                };
+            }
+            else if (positionType === "short" && this.inShortTrade) {
+                // Calculate P&L for the short position
+                const priceDifference = this.shortEntryPrice - exitPrice;
+                const directionMultiplier = priceDifference >= 0 ? 1 : -1;
+                
+                // Calculate profit/loss based on risk amount and effective leverage
+                const refStopDifference = Math.abs(this.shortEntryPrice - this.shortStopReference);
+                const percentOfTarget = Math.min(Math.abs(priceDifference) / refStopDifference, this.rewardMultiple);
+                
+                // Calculate P&L based on percentage of target reached
+                const profitLoss = this.currentRiskAmount * percentOfTarget * directionMultiplier * this.getEffectiveLeverage();
+                
+                // Update statistics
+                this.currentCapital += profitLoss;
+                this.totalProfitLoss += profitLoss;
+                
+                // Determine win/loss based on target hit or direction of profitLoss
+                let isWin = false;
+                
+                if (closeReason === "tp_hit") {
+                    // If closed due to TP hit, it's always a win
+                    isWin = true;
+                    this.shortTargetHits++;
+                } else {
+                    // For signal or manual close, it's a win only if profitLoss > 0
+                    isWin = profitLoss > 0;
+                }
+                
+                if (isWin) {
+                    this.totalProfit += profitLoss;
+                    this.shortWins++;
+                } else {
+                    this.totalLoss += Math.abs(profitLoss);
+                    this.shortLosses++;
+                }
+                
+                // Update trade history
+                const lastShortTradeIndex = [...this.tradeHistory].reverse().findIndex(trade => 
+                    trade.type === "short" && trade.status === "open");
+                
+                if (lastShortTradeIndex !== -1) {
+                    const actualIndex = this.tradeHistory.length - 1 - lastShortTradeIndex;
+                    this.tradeHistory[actualIndex].exitPrice = exitPrice;
+                    this.tradeHistory[actualIndex].pnl = profitLoss;
+                    this.tradeHistory[actualIndex].status = closeReason === "tp_hit" ? "tp_hit" : "closed";
+                    this.tradeHistory[actualIndex].closeTimestamp = new Date().toISOString();
+                    this.tradeHistory[actualIndex].isWin = isWin;
+                    this.tradeHistory[actualIndex].closeReason = closeReason;
+                }
+                
+                // Reset position state
+                this.inShortTrade = false;
+                this.shortEntryPrice = null;
+                this.shortStopReference = null;
+                this.shortTargetLevel = null;
+                
+                result = {
+                    position: "short",
+                    exit: exitPrice,
+                    pnl: profitLoss,
+                    capitalAfter: this.currentCapital,
+                    isWin: isWin,
+                    closeReason: closeReason
+                };
             } else {
-                // For signal or manual close, it's a win only if profitLoss > 0
-                isWin = profitLoss > 0;
+                result = {
+                    error: `No ${positionType} position to close`
+                };
             }
             
-            if (isWin) {
-                this.totalProfit += profitLoss;
-                this.longWins++;
-            } else {
-                this.totalLoss += Math.abs(profitLoss);
-                this.longLosses++;
+            // Call the onPositionClosed callback if provided
+            if (result && !result.error && typeof this.onPositionClosed === 'function') {
+                this.onPositionClosed(result);
             }
             
-            // Update trade history
-            const lastLongTradeIndex = [...this.tradeHistory].reverse().findIndex(trade => 
-                trade.type === "long" && trade.status === "open");
-            
-            if (lastLongTradeIndex !== -1) {
-                const actualIndex = this.tradeHistory.length - 1 - lastLongTradeIndex;
-                this.tradeHistory[actualIndex].exitPrice = exitPrice;
-                this.tradeHistory[actualIndex].pnl = profitLoss;
-                this.tradeHistory[actualIndex].status = closeReason === "tp_hit" ? "tp_hit" : "closed";
-                this.tradeHistory[actualIndex].closeTimestamp = new Date().toISOString();
-                this.tradeHistory[actualIndex].isWin = isWin;
-                this.tradeHistory[actualIndex].closeReason = closeReason;
-            }
-            
-            // Reset position state
-            this.inLongTrade = false;
-            this.longEntryPrice = null;
-            this.longStopReference = null;
-            this.longTargetLevel = null;
-            
-            return {
-                position: "long",
-                exit: exitPrice,
-                pnl: profitLoss,
-                capitalAfter: this.currentCapital,
-                isWin: isWin,
-                closeReason: closeReason
-            };
+            return result;
+        } catch (error) {
+            console.error(`Error closing ${positionType} position:`, error);
+            return { error: "Failed to close position" };
         }
-        else if (positionType === "short" && this.inShortTrade) {
-            // Calculate P&L for the short position
-            const priceDifference = this.shortEntryPrice - exitPrice;
-            const directionMultiplier = priceDifference >= 0 ? 1 : -1;
-            
-            // Calculate profit/loss based on risk amount and effective leverage
-            const refStopDifference = Math.abs(this.shortEntryPrice - this.shortStopReference);
-            const percentOfTarget = Math.min(Math.abs(priceDifference) / refStopDifference, this.rewardMultiple);
-            
-            // Calculate P&L based on percentage of target reached
-            const profitLoss = this.currentRiskAmount * percentOfTarget * directionMultiplier * this.getEffectiveLeverage();
-            
-            // Update statistics
-            this.currentCapital += profitLoss;
-            this.totalProfitLoss += profitLoss;
-            
-            // Determine win/loss based on target hit or direction of profitLoss
-            let isWin = false;
-            
-            if (closeReason === "tp_hit") {
-                // If closed due to TP hit, it's always a win
-                isWin = true;
-                this.shortTargetHits++;
-            } else {
-                // For signal or manual close, it's a win only if profitLoss > 0
-                isWin = profitLoss > 0;
-            }
-            
-            if (isWin) {
-                this.totalProfit += profitLoss;
-                this.shortWins++;
-            } else {
-                this.totalLoss += Math.abs(profitLoss);
-                this.shortLosses++;
-            }
-            
-            // Update trade history
-            const lastShortTradeIndex = [...this.tradeHistory].reverse().findIndex(trade => 
-                trade.type === "short" && trade.status === "open");
-            
-            if (lastShortTradeIndex !== -1) {
-                const actualIndex = this.tradeHistory.length - 1 - lastShortTradeIndex;
-                this.tradeHistory[actualIndex].exitPrice = exitPrice;
-                this.tradeHistory[actualIndex].pnl = profitLoss;
-                this.tradeHistory[actualIndex].status = closeReason === "tp_hit" ? "tp_hit" : "closed";
-                this.tradeHistory[actualIndex].closeTimestamp = new Date().toISOString();
-                this.tradeHistory[actualIndex].isWin = isWin;
-                this.tradeHistory[actualIndex].closeReason = closeReason;
-            }
-            
-            // Reset position state
-            this.inShortTrade = false;
-            this.shortEntryPrice = null;
-            this.shortStopReference = null;
-            this.shortTargetLevel = null;
-            
-            return {
-                position: "short",
-                exit: exitPrice,
-                pnl: profitLoss,
-                capitalAfter: this.currentCapital,
-                isWin: isWin,
-                closeReason: closeReason
-            };
-        }
-        
-        return {
-            error: `No ${positionType} position to close`
-        };
-    } catch (error) {
-        console.error(`Error closing ${positionType} position:`, error);
-        return { error: "Failed to close position" };
     }
-}
 
-/**
- * Handle when price hits the take profit level
- * @param {string} positionType - "long" or "short"
- * @param {number} exitPrice - Price level where TP was hit
- * @returns {Object|boolean} - Trade result or false if no TP hit
- */
-handleTakeProfitHit(positionType, exitPrice) {
-    try {
-        // Use the updated closePosition method with closeReason="tp_hit"
-        if (positionType === "long" && this.inLongTrade) {
-            return this.closePosition("long", exitPrice, "tp_hit");
+    /**
+     * Handle when price hits the take profit level
+     * @param {string} positionType - "long" or "short"
+     * @param {number} exitPrice - Price level where TP was hit
+     * @returns {Object|boolean} - Trade result or false if no TP hit
+     */
+    handleTakeProfitHit(positionType, exitPrice) {
+        try {
+            // Use the updated closePosition method with closeReason="tp_hit"
+            if (positionType === "long" && this.inLongTrade) {
+                return this.closePosition("long", exitPrice, "tp_hit");
+            }
+            else if (positionType === "short" && this.inShortTrade) {
+                return this.closePosition("short", exitPrice, "tp_hit");
+            }
+            
+            return false;
+        } catch (error) {
+            console.error(`Error handling take profit for ${positionType}:`, error);
+            return false;
         }
-        else if (positionType === "short" && this.inShortTrade) {
-            return this.closePosition("short", exitPrice, "tp_hit");
-        }
-        
-        return false;
-    } catch (error) {
-        console.error(`Error handling take profit for ${positionType}:`, error);
-        return false;
     }
-}
     
     /**
      * Get performance statistics
@@ -442,8 +465,15 @@ class Jalgo {
             volume: []
         };
         
+        // Create event callback options for RiskRewardManager
+        const riskOptions = {
+            ...(options.riskOptions || {}),
+            onPositionOpen: options.onPositionOpen || null,
+            onPositionClosed: options.onPositionClosed || null
+        };
+        
         // Risk management
-        this.riskManager = new RiskRewardManager(options.riskOptions || {});
+        this.riskManager = new RiskRewardManager(riskOptions);
         
         // Tracking variables
         this.isInitialized = false;
@@ -452,7 +482,9 @@ class Jalgo {
         
         // Event callbacks
         this.onSignal = options.onSignal || null;
+        this.onPositionOpen = options.onPositionOpen || null;
         this.onTakeProfitHit = options.onTakeProfitHit || null;
+        this.onPositionClosed = options.onPositionClosed || null;
         this.onError = options.onError || null;
         
         // Initialize the system
@@ -504,11 +536,15 @@ class Jalgo {
                 jATR_sma: res.jATR_sma.slice(-3),
                 fast_jATR_sma: res.fast_jATR_sma.slice(-3),
                 signal: res.signal
-            }
-            );
+            });
             
             if (!res || !res.signal) {
                 return false;
+            }
+            
+            // Call the signal callback if provided
+            if (this.onSignal) {
+                this.onSignal(res.signal);
             }
             
             // Handle the signal
@@ -517,11 +553,6 @@ class Jalgo {
                 ...signalResult,
                 timestamp: new Date().toISOString()
             };
-            
-            // Call the signal callback if provided
-            if (this.onSignal && signalResult !== "no signal" && signalResult !== "error") {
-                this.onSignal(this.lastSignal);
-            }
             
             return this.lastSignal;
             
@@ -670,6 +701,132 @@ class Jalgo {
             leverageUsed: this.riskManager.getEffectiveLeverage()
         };
     }
+
+    /**
+     * Log the active position details
+     * @param {number} [currentPrice] - Optional current price for P&L calculation
+     */
+    logActivePosition(currentPrice = null) {
+        try {
+            if (!this.isInitialized) {
+                console.warn("Cannot log position: system not initialized");
+                return;
+            }
+            
+            // If currentPrice is not provided, use the last known close price
+            if (currentPrice === null && this.initialCandles.close.length > 0) {
+                currentPrice = this.initialCandles.close[this.initialCandles.close.length - 1];
+            }
+            
+            // Check if we have any active positions
+            if (!this.riskManager.inLongTrade && !this.riskManager.inShortTrade) {
+                console.log("=== NO ACTIVE POSITIONS ===");
+                return;
+            }
+            
+            // Log long position details
+            if (this.riskManager.inLongTrade) {
+                const entry = this.riskManager.longEntryPrice;
+                const target = this.riskManager.longTargetLevel;
+                const refStop = this.riskManager.longStopReference;
+                const riskAmount = this.riskManager.currentRiskAmount;
+                const leverage = this.riskManager.getEffectiveLeverage();
+                
+                let currentPnL = null;
+                let percentToTarget = null;
+                
+                if (currentPrice) {
+                    // Calculate current P&L
+                    const priceDifference = currentPrice - entry;
+                    const refStopDifference = Math.abs(entry - refStop);
+                    const percentOfTarget = Math.min(Math.abs(priceDifference) / refStopDifference, this.riskManager.rewardMultiple);
+                    const directionMultiplier = priceDifference >= 0 ? 1 : -1;
+                    
+                    currentPnL = riskAmount * percentOfTarget * directionMultiplier * leverage;
+                    percentToTarget = target ? ((currentPrice - entry) / (target - entry) * 100).toFixed(2) + '%' : 'N/A';
+                }
+                
+                console.log("=== ACTIVE LONG POSITION ===");
+                console.log({
+                    entry,
+                    currentPrice: currentPrice || 'Unknown',
+                    target,
+                    percentToTarget,
+                    refStop,
+                    riskAmount,
+                    leverage,
+                    potentialProfit: riskAmount * this.riskManager.rewardMultiple * leverage,
+                    currentPnL: currentPnL !== null ? currentPnL.toFixed(2) : 'N/A',
+                    openedAt: this.riskManager.tradeHistory.find(t => t.type === 'long' && t.status === 'open')?.timestamp || 'Unknown'
+                });
+            }
+            
+// Log short position details
+if (this.riskManager.inShortTrade) {
+    const entry = this.riskManager.shortEntryPrice;
+    const target = this.riskManager.shortTargetLevel;
+    const refStop = this.riskManager.shortStopReference;
+    const riskAmount = this.riskManager.currentRiskAmount;
+    const leverage = this.riskManager.getEffectiveLeverage();
+    
+    let currentPnL = null;
+    let percentToTarget = null;
+    
+    if (currentPrice) {
+        // Calculate current P&L
+        const priceDifference = entry - currentPrice;
+        const refStopDifference = Math.abs(entry - refStop);
+        const percentOfTarget = Math.min(Math.abs(priceDifference) / refStopDifference, this.riskManager.rewardMultiple);
+        const directionMultiplier = priceDifference >= 0 ? 1 : -1;
+        
+        currentPnL = riskAmount * percentOfTarget * directionMultiplier * leverage;
+        percentToTarget = target ? ((entry - currentPrice) / (entry - target) * 100).toFixed(2) + '%' : 'N/A';
+    }
+    
+    console.log("=== ACTIVE SHORT POSITION ===");
+    console.log({
+        entry,
+        currentPrice: currentPrice || 'Unknown',
+        target,
+        percentToTarget,
+        refStop,
+        riskAmount,
+        leverage,
+        potentialProfit: riskAmount * this.riskManager.rewardMultiple * leverage,
+        currentPnL: currentPnL !== null ? currentPnL.toFixed(2) : 'N/A',
+        openedAt: this.riskManager.tradeHistory.find(t => t.type === 'short' && t.status === 'open')?.timestamp || 'Unknown'
+    });
+}
+} catch (error) {
+console.error("Error logging active position:", error);
+}
+}
+
+/**
+* Manually close an active position at current price
+* @param {number} currentPrice - Current market price to close at
+* @returns {Object|boolean} - Close result or false if no active position
+*/
+manuallyClosePosition(currentPrice) {
+try {
+if (!this.isInitialized) {
+    console.warn("Cannot close position: system not initialized");
+    return false;
+}
+
+if (this.riskManager.inLongTrade) {
+    return this.riskManager.closePosition("long", currentPrice, "manual");
+} else if (this.riskManager.inShortTrade) {
+    return this.riskManager.closePosition("short", currentPrice, "manual");
+}
+
+return false;
+} catch (error) {
+console.error("Error manually closing position:", error);
+if (this.onError) this.onError(error);
+return false;
+}
+}
 }
 
 export default Jalgo;

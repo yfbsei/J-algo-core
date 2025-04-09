@@ -17,6 +17,13 @@ class BinanceWebsocketFeed {
         this.spotWs = null;
         this.futuresWs = null;
         
+        // Store event handlers from options or use defaults
+        this.onSignal = options.onSignal || this.handleSignal.bind(this);
+        this.onPositionOpen = options.onPositionOpen || this.handlePositionOpen.bind(this);
+        this.onPositionClosed = options.onPositionClosed || this.handlePositionClosed.bind(this);
+        this.onTakeProfitHit = options.onTakeProfitHit || this.handleTakeProfitHit.bind(this);
+        this.onError = options.onError || this.handleError.bind(this);
+        
         // Initialize Jalgo
         this.jalgo = new Jalgo({
             symbol: this.symbol,
@@ -29,9 +36,12 @@ class BinanceWebsocketFeed {
                 useLeverage: this.market === 'futures',
                 leverageAmount: 3.0
             },
-            onSignal: this.handleSignal.bind(this),
-            onTakeProfitHit: this.handleTakeProfitHit.bind(this),
-            onError: this.handleError.bind(this)
+            // Pass all event handlers to Jalgo
+            onSignal: this.onSignal,
+            onPositionOpen: this.onPositionOpen,
+            onPositionClosed: this.onPositionClosed,
+            onTakeProfitHit: this.onTakeProfitHit,
+            onError: this.onError
         });
         
         // Wait for jalgo initialization before connecting to websockets
@@ -156,14 +166,39 @@ class BinanceWebsocketFeed {
     }
     
     /**
-     * Handle trading signals from Jalgo
+     * Handle signal detection from Jalgo
      * @param {Object} signal - Signal information
      */
     handleSignal(signal) {
         console.log('--------------------------------------------------');
-        console.log(`🔔 NEW SIGNAL: ${signal.position.toUpperCase()} @ ${signal.entry}`);
-        console.log(`Target: ${signal.target}`);
-        console.log(`Risk Amount: $${signal.risk}`);
+        console.log(`📊 SIGNAL DETECTED: ${signal.position.toUpperCase()}`);
+        console.log('--------------------------------------------------');
+    }
+    
+    /**
+     * Handle new position opened from Jalgo
+     * @param {Object} position - Position information
+     */
+    handlePositionOpen(position) {
+        console.log('--------------------------------------------------');
+        console.log(`🔔 NEW POSITION OPENED: ${position.position.toUpperCase()} @ ${position.entry}`);
+        console.log(`Target: ${position.target}`);
+        console.log(`Reference Stop: ${position.refStop}`);
+        console.log(`Risk Amount: $${position.risk}`);
+        console.log('--------------------------------------------------');
+    }
+    
+    /**
+     * Handle position closed from Jalgo
+     * @param {Object} result - Position close result
+     */
+    handlePositionClosed(result) {
+        console.log('--------------------------------------------------');
+        console.log(`🏁 POSITION CLOSED: ${result.position.toUpperCase()} @ ${result.exit}`);
+        console.log(`Close Reason: ${result.closeReason}`);
+        const profitOrLoss = result.pnl >= 0 ? `PROFIT: +$${result.pnl.toFixed(2)}` : `LOSS: -$${Math.abs(result.pnl).toFixed(2)}`;
+        console.log(profitOrLoss);
+        console.log(`Capital: $${result.capitalAfter.toFixed(2)}`);
         console.log('--------------------------------------------------');
     }
     
@@ -193,6 +228,17 @@ class BinanceWebsocketFeed {
      */
     getStats() {
         return this.jalgo.getPerformanceStats();
+    }
+    
+    /**
+     * Log current active position details
+     */
+    logActivePosition() {
+        if (this.jalgo && typeof this.jalgo.logActivePosition === 'function') {
+            this.jalgo.logActivePosition();
+        } else {
+            console.log('Active position logging not available');
+        }
     }
     
     /**
@@ -237,6 +283,9 @@ const startTrading = () => {
         console.log(`Capital: $${stats.currentCapital}`);
         console.log(`P&L: $${stats.totalProfitLoss}`);
         console.log('--------------------------------------------------');
+        
+        // Log active position if any
+        feed.logActivePosition();
     }, 60 * 60 * 1000); // Every hour
     
     return feed;
