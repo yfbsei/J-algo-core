@@ -1,58 +1,45 @@
 /**
- * J-algo-core
- * Trading algorithm based on the J-Trend Sniper v3 indicator
- * 
- * @module j-algo-core
- * @author yfbsei
- * @version 1.0.0
+ * J-Algo Trading System
+ * Main entry point for the trading algorithm
  */
 
-// Import the main algorithm
-import jAlgo from './src/jalgo.js';
-
-// Export the main algorithm as the default export
-export default jAlgo;
+import Jalgo from './src/jalgo.js';
 
 /**
- * Main entry point for the J-algo-core package
- * @typedef {Object} JAlgoResult
- * @property {Object} indicators - The calculated indicators
- * @property {boolean|Object} signal - Trading signal or false if no signal
- * @property {Object} state - Current trading state
- * @property {Object} stats - Trading statistics
- * 
- * @param {Object} source - Object containing OHLC price arrays
- * @param {Object|null} state - Previous state object (or null for initialization)
+ * Initialize the trading system with configuration
  * @param {Object} config - Configuration options
- * @returns {JAlgoResult} - Indicator values, signals, and updated state
- * 
- * @example
- * import jAlgo from 'j-algo-core';
- * 
- * // Sample price data
- * const priceData = {
- *   open: [...],
- *   high: [...],
- *   low: [...],
- *   close: [...]
- * };
- * 
- * // Configuration
- * const config = {
- *   fastLength: 6,
- *   ATRPeriod: 16, 
- *   ATRMultiplier: 9,
- *   rewardMultiple: 1.5,
- *   riskPerTrade: 2.0,
- *   initialCapital: 1000,
- *   useLeverage: false
- * };
- * 
- * // Initialize and run algorithm
- * const result = jAlgo(priceData, null, config);
- * 
- * // Check for signals
- * if (result.signal) {
- *   console.log(`New ${result.signal.position} signal at ${result.signal.location}`);
- * }
+ * @returns {Jalgo} - Configured Jalgo instance
  */
+export const initJalgo = (config = {}) => {
+    const defaultConfig = {
+        symbol: "BTCUSDT",
+        timeframe: "5m",
+        market: "futures",
+        riskOptions: {
+            initialCapital: 1000,
+            riskPerTrade: 2.0,
+            rewardMultiple: 1.5,
+            useLeverage: false,
+            leverageAmount: 1.0,
+            useScalpMode: false
+        },
+        onSignal: (signal) => console.log("New signal:", signal),
+        onTakeProfitHit: (result) => console.log("Take profit hit:", result),
+        onError: (error) => console.error("Error:", error)
+    };
+
+    // Merge user config with defaults
+    const mergedConfig = {
+        ...defaultConfig,
+        ...config,
+        riskOptions: {
+            ...defaultConfig.riskOptions,
+            ...(config.riskOptions || {})
+        }
+    };
+
+    return new Jalgo(mergedConfig);
+};
+
+
+export default Jalgo;
