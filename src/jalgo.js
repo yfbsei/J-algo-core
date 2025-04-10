@@ -140,7 +140,7 @@ class RiskRewardManager {
                 // Use appropriate reference for calculating TP
                 const refStop = this.useScalpMode ? 
                     res.fast_jATR_sma[res.fast_jATR_sma.length - 1] : 
-                    res.jATR[res.jATR.length - 1];
+                    res.jATR_sma[res.jATR_sma.length - 1];
                 
                 this.longStopReference = refStop;
                 this.longTargetLevel = this.calculateTakeProfit_level(this.longEntryPrice, refStop);
@@ -176,7 +176,7 @@ class RiskRewardManager {
                 // Use appropriate reference for calculating TP
                 const refStop = this.useScalpMode ? 
                     res.fast_jATR_sma[res.fast_jATR_sma.length - 1] : 
-                    res.jATR[res.jATR.length - 1];
+                    res.jATR_sma[res.jATR_sma.length - 1];
                 
                 this.shortStopReference = refStop;
                 this.shortTargetLevel = this.calculateTakeProfit_level(this.shortEntryPrice, refStop);
