@@ -8,16 +8,16 @@ import { BybitWebsocketFeed } from '../index.js';
 // Create Bybit WebSocket feed instance
 const bybitFeed = new BybitWebsocketFeed({
     symbol: 'BTCUSDT',     // Trading pair
-    timeframe: '5m',       // Timeframe (1m, 5m, 15m, 1h, etc.)
+    timeframe: '1m',       // Timeframe (1m, 5m, 15m, 1h, etc.)
     market: 'futures',     // 'futures' or 'spot'
     
     // Risk management configuration
     riskOptions: {
-        initialCapital: 10000,      // Starting capital
-        riskPerTrade: 2.0,          // Risk per trade (percentage)
-        rewardMultiple: 1.5,        // Risk/reward ratio (TP level calculation)
+        initialCapital: 100,      // Starting capital
+        riskPerTrade: 10,          // Risk per trade (percentage)
+        rewardMultiple: 0.5,        // Risk/reward ratio (TP level calculation)
         useLeverage: true,          // Enable/disable leverage
-        leverageAmount: 3.0,        // Leverage amount if enabled
+        leverageAmount: 10,        // Leverage amount if enabled
         useScalpMode: false         // Use faster signals for scalping
     },
     
@@ -206,12 +206,12 @@ setInterval(() => {
     displayTradingStats();
 }, 15 * 60 * 1000);
 
-// Example of real-time P&L monitoring - uncomment to use
-// setInterval(() => {
-//     // Replace with actual market price feed
-//     const currentPrice = 42000; // Example price
-//     displayRealTimePnL(currentPrice);
-// }, 30 * 1000);
+//Example of real-time P&L monitoring - uncomment to use
+setInterval(() => {
+    // Replace with actual market price feed
+    const currentPrice = 42000; // Example price
+    displayRealTimePnL(currentPrice);
+}, 30 * 1000);
 
 // Example of manual close - uncomment to use
 // setTimeout(() => {
