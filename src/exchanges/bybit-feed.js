@@ -5,7 +5,7 @@
 
 import Jalgo from '../core/jalgo.js';
 import WebSocket from 'ws';
-import { formatWebSocketCandle, convertInterval } from '../utility/market-provider.js';
+import { convertInterval } from '../utility/market-provider.js';
 
 class BybitWebsocketFeed {
     constructor(options = {}) {
@@ -17,6 +17,8 @@ class BybitWebsocketFeed {
         // Initialize websocket connection
         this.ws = null;
         this.pingInterval = null;
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 10;
         
         // Store event handlers from options or use defaults
         this.onSignal = options.onSignal || this.handleSignal.bind(this);
@@ -62,17 +64,21 @@ class BybitWebsocketFeed {
             // Convert timeframe from Jalgo format to Bybit WebSocket format
             const wsTimeframe = convertInterval('bybit', this.timeframe);
             
-            // Determine category based on market type
-            const category = this.market === 'spot' ? 'spot' : 'linear';
-            
-            // Construct the WebSocket URL
-            const wsUrl = 'wss://stream.bybit.com/v5/public';
+            // Determine category and URL based on market type
+            let wsUrl;
+            if (this.market === 'spot') {
+                wsUrl = 'wss://stream.bybit.com/v5/public/spot';
+            } else {
+                // For futures (linear)
+                wsUrl = 'wss://stream.bybit.com/v5/public/linear';
+            }
             
             // Create WebSocket connection
             this.ws = new WebSocket(wsUrl);
             
             this.ws.on('open', () => {
                 console.log(`Connected to Bybit WebSocket for ${this.symbol}`);
+                this.reconnectAttempts = 0; // Reset reconnect attempts on successful connection
                 
                 // Subscribe to kline/candlestick channel
                 const subscribeMsg = JSON.stringify({
@@ -83,12 +89,16 @@ class BybitWebsocketFeed {
                 
                 this.ws.send(subscribeMsg);
                 
-                // Setup ping interval to keep connection alive
+                // Setup ping interval to keep connection alive (every 20 seconds)
                 this.pingInterval = setInterval(() => {
-                    if (this.ws.readyState === WebSocket.OPEN) {
-                        this.ws.send(JSON.stringify({ op: 'ping' }));
+                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                        const pingMsg = JSON.stringify({
+                            op: 'ping',
+                            req_id: (Date.now() + 1).toString() // Ensure unique req_id
+                        });
+                        this.ws.send(pingMsg);
                     }
-                }, 20000); // Send ping every 20 seconds
+                }, 20000);
             });
             
             this.ws.on('message', (data) => {
@@ -120,7 +130,7 @@ class BybitWebsocketFeed {
     }
     
     /**
-     * Handle WebSocket reconnection
+     * Handle WebSocket reconnection with exponential backoff
      */
     handleReconnect() {
         // Clear existing ping interval if it exists
@@ -129,13 +139,33 @@ class BybitWebsocketFeed {
             this.pingInterval = null;
         }
         
-        // Attempt to reconnect after 5 seconds
-        setTimeout(() => {
-            if (!this.ws || this.ws.readyState === WebSocket.CLOSED) {
-                console.log('Attempting to reconnect to Bybit WebSocket...');
-                this.connectToWebsocket();
-            }
-        }, 5000);
+        this.reconnectAttempts++;
+        
+        if (this.reconnectAttempts <= this.maxReconnectAttempts) {
+            // Calculate backoff time (exponential with jitter)
+            const baseDelay = 2000; // 2 seconds
+            const maxDelay = 60000; // Max 60 seconds
+            
+            // Exponential backoff with jitter
+            const exponentialDelay = Math.min(
+                maxDelay,
+                baseDelay * Math.pow(2, this.reconnectAttempts - 1)
+            );
+            
+            // Add jitter (±20%)
+            const jitter = 0.2 * exponentialDelay * (Math.random() - 0.5);
+            const delay = Math.floor(exponentialDelay + jitter);
+            
+            console.log(`Attempting to reconnect to Bybit WebSocket in ${delay/1000} seconds (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+            
+            setTimeout(() => {
+                if (!this.ws || this.ws.readyState === WebSocket.CLOSED) {
+                    this.connectToWebsocket();
+                }
+            }, delay);
+        } else {
+            console.error(`Failed to reconnect to Bybit WebSocket after ${this.maxReconnectAttempts} attempts. Please check your connection or restart the application.`);
+        }
     }
     
     /**
@@ -148,7 +178,7 @@ class BybitWebsocketFeed {
             
             // Handle pong response
             if (message.op === 'pong') {
-                // WebSocket connection is alive, do nothing
+                // WebSocket connection is alive, no action needed
                 return;
             }
             
@@ -162,7 +192,7 @@ class BybitWebsocketFeed {
             if (message.topic && message.topic.includes('kline') && Array.isArray(message.data)) {
                 const candle = message.data[0];
                 
-                // Convert to standard format
+                // Convert to standard format for Jalgo
                 const standardCandle = {
                     t: parseInt(candle.start),
                     o: candle.open,
