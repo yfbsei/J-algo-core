@@ -207,11 +207,11 @@ setInterval(() => {
 }, 15 * 60 * 1000);
 
 //Example of real-time P&L monitoring - uncomment to use
-setInterval(() => {
-    // Replace with actual market price feed
-    const currentPrice = 42000; // Example price
-    displayRealTimePnL(currentPrice);
-}, 30 * 1000);
+// setInterval(() => {
+//     // Replace with actual market price feed
+//     const currentPrice = 42000; // Example price
+//     displayRealTimePnL(currentPrice);
+// }, 30 * 1000);
 
 // Example of manual close - uncomment to use
 // setTimeout(() => {
