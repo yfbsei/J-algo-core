@@ -1,12 +1,15 @@
 {
   "name": "j-algo-core",
-  "version": "1.0.0",
-  "description": "",
+  "version": "1.1.0",
+  "description": "J-Algo Trading System with multi-exchange support",
   "main": "index.js",
   "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node example-usage.js"
+    "start": "node example-usage.js",
+    "start:multi": "node multi-exchange-example.js",
+    "start:binance": "node binance-example.js",
+    "start:bybit": "node bybit-example.js"
   },
   "author": "yfbsei",
   "license": "ISC",

@@ -3,8 +3,9 @@
  * Connects to Binance WebSockets and feeds data into Jalgo
  */
 
-import Jalgo from './src/jalgo.js';
+import Jalgo from '../core/jalgo.js';
 import WebSocket from 'ws';
+import { getWebSocketBaseUrl } from '../utility/market-provider.js';
 
 class BinanceWebsocketFeed {
     constructor(options = {}) {
@@ -24,11 +25,12 @@ class BinanceWebsocketFeed {
         this.onTakeProfitHit = options.onTakeProfitHit || this.handleTakeProfitHit.bind(this);
         this.onError = options.onError || this.handleError.bind(this);
         
-        // Initialize Jalgo
+        // Initialize Jalgo with Binance as provider
         this.jalgo = new Jalgo({
             symbol: this.symbol,
             timeframe: this.timeframe,
             market: this.market,
+            provider: 'binance', // Set provider to Binance
             riskOptions: options.riskOptions || {
                 initialCapital: 1000,
                 riskPerTrade: 2.0,
@@ -57,13 +59,13 @@ class BinanceWebsocketFeed {
         try {
             console.log(`Connecting to Binance ${this.market} WebSocket for ${this.symbol}...`);
             
-            // Convert timeframe from Jalgo format to WebSocket stream format (e.g., 5m -> 5m)
+            // Convert timeframe from Jalgo format to WebSocket stream format
             const wsTimeframe = this.timeframe;
             
             // Connect to spot or futures based on configuration
             if (this.market === 'spot') {
                 // Spot kline/candlestick stream
-                const spotStreamUrl = `wss://stream.binance.com:9443/ws/${this.symbol.toLowerCase()}@kline_${wsTimeframe}`;
+                const spotStreamUrl = `${getWebSocketBaseUrl('binance', 'spot')}/${this.symbol.toLowerCase()}@kline_${wsTimeframe}`;
                 this.spotWs = new WebSocket(spotStreamUrl);
                 
                 this.spotWs.on('open', () => {
@@ -87,7 +89,7 @@ class BinanceWebsocketFeed {
                 });
             } else {
                 // Futures kline/candlestick stream
-                const futuresStreamUrl = `wss://fstream.binance.com/ws/${this.symbol.toLowerCase()}@kline_${wsTimeframe}`;
+                const futuresStreamUrl = `${getWebSocketBaseUrl('binance', 'futures')}/${this.symbol.toLowerCase()}@kline_${wsTimeframe}`;
                 this.futuresWs = new WebSocket(futuresStreamUrl);
                 
                 this.futuresWs.on('open', () => {
@@ -133,7 +135,7 @@ class BinanceWebsocketFeed {
                 
                 // Log candles that are complete (x = true)
                 if (candle.x) {
-                    console.log(`New completed ${this.timeframe} candle for ${this.symbol}: O=${candle.o} H=${candle.h} L=${candle.l} C=${candle.c}`);
+                    console.log(`New completed ${this.timeframe} candle for ${this.symbol} (Binance Spot): O=${candle.o} H=${candle.h} L=${candle.l} C=${candle.c}`);
                 }
             }
         } catch (error) {
@@ -157,7 +159,7 @@ class BinanceWebsocketFeed {
                 
                 // Log candles that are complete (x = true)
                 if (candle.x) {
-                    console.log(`New completed ${this.timeframe} candle for ${this.symbol}: O=${candle.o} H=${candle.h} L=${candle.l} C=${candle.c}`);
+                    console.log(`New completed ${this.timeframe} candle for ${this.symbol} (Binance Futures): O=${candle.o} H=${candle.h} L=${candle.l} C=${candle.c}`);
                 }
             }
         } catch (error) {
@@ -171,7 +173,7 @@ class BinanceWebsocketFeed {
      */
     handleSignal(signal) {
         console.log('--------------------------------------------------');
-        console.log(`📊 SIGNAL DETECTED: ${signal.position.toUpperCase()}`);
+        console.log(`📊 SIGNAL DETECTED (Binance ${this.symbol}): ${signal.position.toUpperCase()}`);
         console.log('--------------------------------------------------');
     }
     
@@ -181,10 +183,10 @@ class BinanceWebsocketFeed {
      */
     handlePositionOpen(position) {
         console.log('--------------------------------------------------');
-        console.log(`🔔 NEW POSITION OPENED: ${position.position.toUpperCase()} @ ${position.entry}`);
+        console.log(`🔔 NEW POSITION OPENED (Binance ${this.symbol}): ${position.position.toUpperCase()} @ ${position.entry}`);
         console.log(`Target: ${position.target}`);
         console.log(`Reference Stop: ${position.refStop}`);
-        console.log(`Risk Amount: $${position.risk}`);
+        console.log(`Risk Amount: ${position.risk}`);
         console.log('--------------------------------------------------');
     }
     
@@ -194,11 +196,11 @@ class BinanceWebsocketFeed {
      */
     handlePositionClosed(result) {
         console.log('--------------------------------------------------');
-        console.log(`🏁 POSITION CLOSED: ${result.position.toUpperCase()} @ ${result.exit}`);
+        console.log(`🏁 POSITION CLOSED (Binance ${this.symbol}): ${result.position.toUpperCase()} @ ${result.exit}`);
         console.log(`Close Reason: ${result.closeReason}`);
-        const profitOrLoss = result.pnl >= 0 ? `PROFIT: +$${result.pnl.toFixed(2)}` : `LOSS: -$${Math.abs(result.pnl).toFixed(2)}`;
+        const profitOrLoss = result.pnl >= 0 ? `PROFIT: +${result.pnl.toFixed(2)}` : `LOSS: -${Math.abs(result.pnl).toFixed(2)}`;
         console.log(profitOrLoss);
-        console.log(`Capital: $${result.capitalAfter.toFixed(2)}`);
+        console.log(`Capital: ${result.capitalAfter.toFixed(2)}`);
         console.log('--------------------------------------------------');
     }
     
@@ -208,9 +210,9 @@ class BinanceWebsocketFeed {
      */
     handleTakeProfitHit(result) {
         console.log('--------------------------------------------------');
-        console.log(`🎯 TARGET HIT: ${result.position.toUpperCase()} @ ${result.exit}`);
-        console.log(`PnL: $${result.pnl.toFixed(2)}`);
-        console.log(`Capital: $${result.capitalAfter.toFixed(2)}`);
+        console.log(`🎯 TARGET HIT (Binance ${this.symbol}): ${result.position.toUpperCase()} @ ${result.exit}`);
+        console.log(`PnL: ${result.pnl.toFixed(2)}`);
+        console.log(`Capital: ${result.capitalAfter.toFixed(2)}`);
         console.log('--------------------------------------------------');
     }
     
@@ -219,7 +221,7 @@ class BinanceWebsocketFeed {
      * @param {Error} error - Error object
      */
     handleError(error) {
-        console.error('Jalgo Error:', error);
+        console.error('Jalgo Error (Binance):', error);
     }
     
     /**
@@ -237,7 +239,7 @@ class BinanceWebsocketFeed {
         if (this.jalgo && typeof this.jalgo.logActivePosition === 'function') {
             this.jalgo.logActivePosition();
         } else {
-            console.log('Active position logging not available');
+            console.log('Active position logging not available for Binance');
         }
     }
     
@@ -247,55 +249,17 @@ class BinanceWebsocketFeed {
     close() {
         if (this.spotWs) {
             this.spotWs.close();
+            this.spotWs = null;
         }
         
         if (this.futuresWs) {
             this.futuresWs.close();
+            this.futuresWs = null;
         }
         
-        console.log('All WebSocket connections closed');
+        console.log('All Binance WebSocket connections closed');
     }
 }
 
-// Example usage
-const startTrading = () => {
-    const feed = new BinanceWebsocketFeed({
-        symbol: 'BTCUSDT',     // Symbol to trade
-        timeframe: '5m',       // Timeframe to use
-        market: 'futures',     // 'futures' or 'spot'
-        riskOptions: {
-            initialCapital: 1000,
-            riskPerTrade: 2.0,
-            rewardMultiple: 1.5,
-            useLeverage: true,
-            leverageAmount: 3.0,
-            useScalpMode: false
-        }
-    });
-    
-    // Print stats every hour
-    setInterval(() => {
-        const stats = feed.getStats();
-        console.log('--------------------------------------------------');
-        console.log('PERFORMANCE STATS:');
-        console.log(`Total Trades: ${stats.totalTrades}`);
-        console.log(`Win Rate: ${stats.overallWinRate}%`);
-        console.log(`Capital: $${stats.currentCapital}`);
-        console.log(`P&L: $${stats.totalProfitLoss}`);
-        console.log('--------------------------------------------------');
-        
-        // Log active position if any
-        feed.logActivePosition();
-    }, 60 * 60 * 1000); // Every hour
-    
-    return feed;
-};
-
-// Export both the class and a ready-to-use function
-export { BinanceWebsocketFeed, startTrading };
-
-// Auto-start if run directly
-if (process.argv[1].includes('binance-websocket.js')) {
-    console.log('Starting Binance WebSocket feed...');
-    startTrading();
-}
+// Export the class
+export default BinanceWebsocketFeed;
