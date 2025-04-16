@@ -161,24 +161,26 @@ export const formatNumber = (number, precision = 8) => {
 };
 
 /**
- * Generate a unique order ID
+ * Generate a unique order ID with timeframe information
  * @param {string} symbol - Trading symbol
  * @param {string} side - Order side
+ * @param {string} timeframe - Trading timeframe
  * @returns {string} - Unique order ID
  */
-export const generateOrderId = (symbol, side) => {
+export const generateOrderId = (symbol, side, timeframe) => {
   const timestamp = Date.now().toString();
   const randomPart = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-  return `${symbol}-${side}-${timestamp}-${randomPart}`;
+  return `${symbol}-${timeframe}-${side}-${timestamp}-${randomPart}`;
 };
 
 /**
  * Convert J-algo signal to Bybit order parameters
  * @param {Object} signal - J-algo trading signal
  * @param {string} category - Bybit category (spot, linear, inverse)
+ * @param {string} timeframe - Trading timeframe
  * @returns {Object} - Bybit order parameters
  */
-export const convertSignalToOrder = (signal, category) => {
+export const convertSignalToOrder = (signal, category, timeframe) => {
   if (!signal || !signal.position) {
     return null;
   }
@@ -194,8 +196,15 @@ export const convertSignalToOrder = (signal, category) => {
     orderType: 'Market',
     qty: signal.qty || '0',
     positionIdx: 0, // Default to one-way mode
-    orderLinkId: generateOrderId(signal.symbol, side),
+    orderLinkId: generateOrderId(signal.symbol, side, timeframe || ''),
   };
+  
+  // Include take profit if available in the signal
+  if (signal.target) {
+    orderParams.takeProfit = signal.target.toString();
+    // Default to LastPrice trigger for take profit
+    orderParams.tpTriggerBy = 'LastPrice';
+  }
   
   // For futures (linear/inverse), set reduce-only if closing
   if (category !== 'spot' && signal.isClosing) {

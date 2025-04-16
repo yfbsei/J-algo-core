@@ -291,45 +291,140 @@ setTimeout(() => {
     
     return instance;
   }
-  
+
   /**
-   * Handle trading signal from Jalgo
-   * @param {string} instanceKey - Trading instance key
-   * @param {Object} signal - Signal information
-   * @private
-   */
-  handleSignal(instanceKey, signal) {
-    if (!this.tradingInstances.has(instanceKey)) {
-      return;
-    }
-    
-    const instance = this.tradingInstances.get(instanceKey);
-    
-    // Log signal details
-    this.logger.info(`📊 SIGNAL DETECTED (${instance.symbol}): ${signal.position.toUpperCase()}`);
-    
-    // Store the signal
-    instance.lastSignal = {
-      ...signal,
-      timestamp: new Date().toISOString()
-    };
-    
-    // If auto trading is enabled, place order
-    if (this.config.enableAutoTrading) {
-      try {
-        // Convert signal to order parameters
-        const orderParams = utils.convertSignalToOrder(signal, instance.category);
-        
-        if (orderParams) {
-          this.placeOrder(instance.category, orderParams).catch(error => {
-            this.logger.error(`Error placing order for ${instance.symbol}:`, error);
-          });
-        }
-      } catch (error) {
-        this.logger.error(`Error processing signal for ${instance.symbol}:`, error);
-      }
+ * Handle trading signal from Jalgo
+ * @param {string} instanceKey - Trading instance key
+ * @param {Object} signal - Signal information
+ * @private
+ */
+handleSignal(instanceKey, signal) {
+  if (!this.tradingInstances.has(instanceKey)) {
+    return;
+  }
+  
+  const instance = this.tradingInstances.get(instanceKey);
+  
+  // Log signal details
+  this.logger.info(`📊 SIGNAL DETECTED (${instance.symbol}-${instance.timeframe}): ${signal.position.toUpperCase()}`);
+  
+  // Ensure the signal includes the take profit target
+  if (instance.jalgo && instance.jalgo.riskManager) {
+    // For long positions
+    if (signal.position === 'long' && instance.jalgo.riskManager.longTargetLevel) {
+      signal.target = instance.jalgo.riskManager.longTargetLevel;
+    } 
+    // For short positions
+    else if (signal.position === 'short' && instance.jalgo.riskManager.shortTargetLevel) {
+      signal.target = instance.jalgo.riskManager.shortTargetLevel;
     }
   }
+  
+  // Store the signal
+  instance.lastSignal = {
+    ...signal,
+    timestamp: new Date().toISOString()
+  };
+  
+  // If auto trading is enabled, handle position and place order
+  if (this.config.enableAutoTrading) {
+    // Execute in async context to handle promises
+    (async () => {
+      try {
+        // 1. Check if there's an existing position for this specific instance (symbol + timeframe)
+        const category = instance.category;
+        const symbol = instance.symbol;
+        let existingPositions = [];
+        
+        try {
+          const positionsResponse = await this.positionManager.getPositions(category, symbol, true);
+          if (positionsResponse && positionsResponse.list) {
+            existingPositions = positionsResponse.list.filter(p => parseFloat(p.size) > 0);
+          }
+        } catch (error) {
+          this.logger.error(`Error checking positions for ${symbol}:`, error);
+        }
+        
+        // 2. If positions exist, check if we need to close any that match this specific instance
+        if (existingPositions.length > 0) {
+          this.logger.info(`Found ${existingPositions.length} existing positions for ${symbol}`);
+          
+          // Find positions that need to be closed (opposite to current signal)
+          // We need to match both the symbol AND ensure it's from the same timeframe instance
+          const currentPositionSide = signal.position === 'long' ? 'Buy' : 'Sell';
+          const opposingPositionSide = signal.position === 'long' ? 'Sell' : 'Buy';
+          
+          // Check the position metadata in our system to identify the specific timeframe
+          // We use the orderLinkId which can contain our instance signature
+          const positionsToClose = existingPositions.filter(pos => {
+            // First check if the position side is opposite to our signal
+            if (pos.side !== opposingPositionSide) return false;
+            
+            // Then try to match it to our specific timeframe instance
+            // Check recent orders to see if this position was opened by this instance
+            return this.isPositionFromInstance(pos, instance);
+          });
+          
+          // Close any identified opposing positions from the same instance
+          for (const position of positionsToClose) {
+            this.logger.info(`Closing opposing ${position.side} position for ${symbol}-${instance.timeframe}`);
+            
+            // Create a market order to close this specific position
+            const closeOrderParams = {
+              symbol,
+              side: currentPositionSide, // Opposite side to close
+              orderType: 'Market',
+              qty: position.size.toString(),
+              reduceOnly: true // Ensure it only reduces the position
+            };
+            
+            try {
+              const closeResult = await this.placeOrder(category, closeOrderParams);
+              this.logger.info(`Closed existing position: ${closeResult.orderId}`);
+            } catch (error) {
+              this.logger.error(`Error closing existing position for ${symbol}:`, error);
+            }
+          }
+        }
+        
+        // 3. Place the new order with take profit included
+        // Convert signal to order parameters
+        const orderParams = utils.convertSignalToOrder(signal, instance.category, instance.timeframe);
+        
+        if (orderParams) {
+          // Add an instance identifier to the orderLinkId to track which timeframe opened the position
+          orderParams.orderLinkId = `${instance.symbol}-${instance.timeframe}-${Date.now()}`;
+          
+          this.logger.info(`Placing order for ${instance.symbol}-${instance.timeframe} with take profit: ${orderParams.takeProfit || 'Not set'}`);
+          
+          const result = await this.placeOrder(instance.category, orderParams);
+          this.logger.info(`Order placed successfully: ${result.orderId}`);
+        }
+      } catch (error) {
+        this.logger.error(`Error processing signal for ${instance.symbol}-${instance.timeframe}:`, error);
+      }
+    })();
+  }
+}
+
+/**
+ * Determine if a position was opened by a specific trading instance
+ * @param {Object} position - Position from Bybit
+ * @param {Object} instance - Trading instance
+ * @returns {boolean} - True if position matches the instance
+ * @private
+ */
+isPositionFromInstance(position, instance) {
+  // If we have the order history, we could check if this position was opened
+  // by an order with our instance's signature in the orderLinkId
+  
+  // Method 1: Check createdTime against instance's trading times
+  // Method 2: Check against our local order cache
+  
+  // For now, a simpler approach - if both symbol and side match, and we don't have
+  // better information, assume it's from this instance
+  return true;
+}
   
   /**
    * Handle position open event
@@ -399,25 +494,101 @@ setTimeout(() => {
   }
   
   /**
-   * Place an order on Bybit
-   * @param {string} category - Order category (spot, linear, inverse)
-   * @param {Object} params - Order parameters
-   * @returns {Promise<Object>} - Order result
-   */
-  async placeOrder(category, params) {
-    try {
-      const orderResult = await this.bybitClient.placeOrder({
-        category,
-        ...params
-      });
-      
-      this.logger.info(`Order placed for ${params.symbol}: ${params.side} ${params.orderType}`, orderResult);
-      return orderResult;
-    } catch (error) {
-      this.logger.error(`Error placing order for ${params.symbol}:`, error);
-      throw error;
-    }
+ * Determine if a position was opened by a specific trading instance by checking recent orders
+ * @param {Object} position - Position from Bybit
+ * @param {Object} instance - Trading instance
+ * @returns {boolean} - True if position matches the instance
+ * @private
+ */
+isPositionFromInstance(position, instance) {
+  try {
+    // Method 1: Check order history for this position
+    // We could look at recent orders and match them with positions
+    
+    // For positions without clear identification, we need heuristics
+    // This simple version just checks if the symbol matches and
+    // the position side is opposite to our signal direction
+    
+    // If we have a detailed order tracking system:
+    // 1. We could check orderLinkId patterns that would include timeframe information
+    // 2. We could maintain a mapping of which positions were opened by which instances
+    
+    // For now, return true only if the symbol matches
+    // This is a starting point - in a real implementation, we would have
+    // more sophisticated tracking
+    return position.symbol === instance.symbol;
+  } catch (error) {
+    this.logger.error('Error checking position origin:', error);
+    // If in doubt, return false to be safe
+    return false;
   }
+}
+
+/**
+ * Store position opening information to track which instance created it
+ * @param {string} orderId - Order ID from Bybit
+ * @param {string} symbol - Trading symbol
+ * @param {string} timeframe - Trading timeframe
+ * @param {string} side - Position side (Buy/Sell)
+ * @private
+ */
+recordPositionOpening(orderId, symbol, timeframe, side) {
+  // Store in a map for easy retrieval
+  if (!this.positionOrigins) {
+    this.positionOrigins = new Map();
+  }
+  
+  this.positionOrigins.set(orderId, {
+    symbol,
+    timeframe,
+    side,
+    timestamp: Date.now()
+  });
+  
+  // Cleanup old entries (optional)
+  if (this.positionOrigins.size > 100) {
+    // Remove oldest entries if the map gets too large
+    const keys = Array.from(this.positionOrigins.keys());
+    const oldestKeys = keys.slice(0, 10); // Remove oldest 10 entries
+    oldestKeys.forEach(key => this.positionOrigins.delete(key));
+  }
+}
+
+/**
+ * Place an order on Bybit
+ * @param {string} category - Order category (spot, linear, inverse)
+ * @param {Object} params - Order parameters
+ * @returns {Promise<Object>} - Order result
+ */
+async placeOrder(category, params) {
+  try {
+    // Log if take profit is included
+    if (params.takeProfit) {
+      this.logger.info(`Including take profit at ${params.takeProfit} for ${params.symbol}`);
+    }
+    
+    const orderResult = await this.bybitClient.placeOrder({
+      category,
+      ...params
+    });
+    
+    // Record the position opening for tracking
+    if (orderResult && orderResult.orderId && params.timeframe) {
+      this.recordPositionOpening(
+        orderResult.orderId,
+        params.symbol,
+        params.timeframe,
+        params.side
+      );
+    }
+    
+    this.logger.info(`Order placed for ${params.symbol}: ${params.side} ${params.orderType}`, orderResult);
+    return orderResult;
+  } catch (error) {
+    this.logger.error(`Error placing order for ${params.symbol}:`, error);
+    throw error;
+  }
+}
   
   /**
    * Cancel an order
