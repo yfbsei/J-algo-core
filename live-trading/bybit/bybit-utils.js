@@ -1,6 +1,7 @@
 /**
  * Bybit Utilities
  * Helper functions for Bybit trading integration
+ * Includes support for demo trading, market data conversion, and trading tools
  */
 
 /**
@@ -94,6 +95,51 @@ export const calculatePositionSize = (capital, riskPercent, entryPrice, stopLoss
     positionValue: positionValue.toFixed(2),
     leverage
   };
+};
+
+/**
+ * Check if demo trading mode is appropriate for testing
+ * @param {string} symbol - Trading symbol
+ * @param {string} market - Market type (spot, linear, inverse)
+ * @param {number} capital - Initial capital
+ * @returns {Object} - Recommendations for demo trading
+ */
+export const getDemoTradingRecommendations = (symbol, market, capital) => {
+  // Recommendations for demo trading
+  const recommendations = {
+    initialCapital: 1000,
+    suggestedLeverage: 1,
+    requestFundsCycle: 'session', // when to request funds: 'never', 'session', 'daily'
+    idealDemoAssets: ['BTC', 'ETH', 'USDT']
+  };
+  
+  // High value assets need more initial capital
+  if (symbol.startsWith('BTC') || symbol.startsWith('ETH')) {
+    recommendations.initialCapital = 10000;
+  }
+  
+  // Leverage recommendations based on market type
+  if (market === 'linear' || market === 'inverse') {
+    recommendations.suggestedLeverage = 3;
+    
+    // For volatile assets, use lower leverage
+    if (symbol.startsWith('BTC') || symbol.startsWith('ETH')) {
+      recommendations.suggestedLeverage = 2;
+    }
+    // For less volatile assets, can use higher leverage
+    else if (symbol.includes('1000') || symbol.includes('LINK') || symbol.includes('SOL')) {
+      recommendations.suggestedLeverage = 5;
+    }
+  }
+  
+  // If initial capital is small, request funds more frequently
+  if (capital < 500) {
+    recommendations.requestFundsCycle = 'daily';
+  } else if (capital > 5000) {
+    recommendations.requestFundsCycle = 'never';
+  }
+  
+  return recommendations;
 };
 
 /**

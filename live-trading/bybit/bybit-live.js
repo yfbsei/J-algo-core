@@ -31,7 +31,7 @@ class BybitLiveTrading {
     
     // Create logger
     this.logger = utils.createLogger(this.config.logLevel);
-    this.logger.info('Initializing Bybit Live Trading module...');
+    this.logger.info(`Initializing Bybit ${this.config.isDemo ? 'DEMO' : 'LIVE'} Trading module...`);
     
     // Trading instances map (symbol -> trading instance)
     this.tradingInstances = new Map();
@@ -53,13 +53,51 @@ class BybitLiveTrading {
       enableAutoMonitoring: this.config.enablePositionMonitoring,
       isDemo: this.config.isDemo
     });
+    
+    // Use a preferred WebSocket URL based on diagnostic results
+    const preferredWebSocketUrls = {
+      linear: 'wss://stream.bybit.com/v5/public/linear',
+      inverse: 'wss://stream.bybit.com/v5/public/inverse',
+      spot: 'wss://stream.bybit.com/v5/public/spot'
+    };
+    
     this.marketData = createMarketDataHandler({
       reconnectDelay: this.config.webSocketReconnectDelay,
-      maxReconnectAttempts: this.config.maxReconnectAttempts
+      maxReconnectAttempts: this.config.maxReconnectAttempts,
+      preferredWebSocketUrls: preferredWebSocketUrls
     });
+    
     this.accountInfo = createAccountInfoHandler(this.bybitClient);
     
+    // Auto-request demo funds if configured
+    if (this.config.isDemo && this.config.requestDemoFundsOnStart) {
+      this.requestDemoFunds()
+        .then(result => {
+          this.logger.info('Demo funds requested successfully');
+        })
+        .catch(error => {
+          this.logger.error('Failed to request demo funds:', error.message);
+        });
+    }
+    
     this.logger.info('Bybit Live Trading module initialized');
+  }
+  
+  /**
+   * Request demo trading funds (only works in demo mode)
+   * @returns {Promise<Object>} - Result of the request
+   */
+  async requestDemoFunds() {
+    if (!this.config.isDemo) {
+      throw new Error('Demo funds can only be requested in demo trading mode');
+    }
+    
+    try {
+      return await this.bybitClient.requestDemoFunds();
+    } catch (error) {
+      this.logger.error('Error requesting demo funds:', error);
+      throw error;
+    }
   }
   
   /**
@@ -78,7 +116,7 @@ class BybitLiveTrading {
       throw new Error('Symbol and timeframe are required');
     }
     
-    // Log if using demo mode
+    // Log trading mode
     if (this.config.isDemo) {
       this.logger.info(`Creating ${symbol} trading instance in DEMO mode - no real funds will be used`);
     }

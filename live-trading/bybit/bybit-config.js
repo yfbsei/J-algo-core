@@ -31,6 +31,12 @@ export const DEFAULT_CONFIG = {
   positionMonitoringInterval: 10000, // ms
   enablePositionMonitoring: true,
   
+  // Demo trading options
+  requestDemoFundsOnStart: false, // Auto-request demo funds on startup
+  
+  // Performance optimization
+  useFastHmacSigning: true, // Use faster Node.js HMAC signing
+  
   // Logging
   enableDebug: false,
   logLevel: 'info', // 'debug', 'info', 'warn', 'error'
@@ -74,6 +80,11 @@ export const validateConfig = (config = {}) => {
     mergedConfig.positionMonitoringInterval = 1000;
   }
   
+  // If demo mode and requestDemoFundsOnStart, log a message
+  if (mergedConfig.isDemo && mergedConfig.requestDemoFundsOnStart) {
+    console.log('Demo mode with auto-funding enabled - will request demo funds on startup');
+  }
+  
   return mergedConfig;
 };
 
@@ -92,7 +103,9 @@ export const loadConfigFromEnv = () => {
     riskPerTrade: parseFloat(process.env.BYBIT_RISK_PER_TRADE || DEFAULT_CONFIG.riskPerTrade),
     rewardMultiple: parseFloat(process.env.BYBIT_REWARD_MULTIPLE || DEFAULT_CONFIG.rewardMultiple),
     enableDebug: (process.env.BYBIT_DEBUG === 'true'),
-    logLevel: process.env.BYBIT_LOG_LEVEL || DEFAULT_CONFIG.logLevel
+    logLevel: process.env.BYBIT_LOG_LEVEL || DEFAULT_CONFIG.logLevel,
+    requestDemoFundsOnStart: (process.env.BYBIT_REQUEST_DEMO_FUNDS === 'true'),
+    useFastHmacSigning: (process.env.BYBIT_FAST_HMAC !== 'false') // Default to true
   };
 };
 

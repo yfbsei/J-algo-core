@@ -1,5 +1,5 @@
 /**
- * Example usage of Bybit Live Trading module
+ * Example usage of Bybit Live Trading module with demo trading support
  */
 
 import BybitLiveTrading from '../live-trading/bybit/bybit-live.js';
@@ -23,20 +23,35 @@ async function runTradingSystem() {
     rewardMultiple: parseFloat(process.env.BYBIT_REWARD_MULTIPLE || '1.5'),
     enableAutoTrading: process.env.BYBIT_AUTO_TRADING === 'true',
     enableDebug: process.env.BYBIT_DEBUG === 'true',
-    logLevel: process.env.BYBIT_LOG_LEVEL || 'info'
+    logLevel: process.env.BYBIT_LOG_LEVEL || 'info',
+    // Demo trading specific options
+    requestDemoFundsOnStart: process.env.BYBIT_REQUEST_DEMO_FUNDS === 'true',
+    useFastHmacSigning: process.env.BYBIT_FAST_HMAC !== 'false'
   };
   
   // Create Bybit trading instance
   const bybitTrading = new BybitLiveTrading(config);
   
+  // If in demo mode and not auto-requesting funds, request funds manually
+  if (config.isDemo && !config.requestDemoFundsOnStart) {
+    try {
+      console.log('Requesting demo trading funds...');
+      await bybitTrading.requestDemoFunds();
+      console.log('Successfully requested demo funds');
+    } catch (error) {
+      console.error('Failed to request demo funds:', error.message);
+    }
+  }
+  
   // Define trading pairs and timeframes
   const tradingPairs = [
-    { symbol: 'BTCUSDT', timeframe: '5m', market: 'futures' },
-    { symbol: 'ETHUSDT', timeframe: '15m', market: 'futures' },
-    { symbol: 'BTCUSDT', timeframe: '1h', market: 'futures' }
+    { symbol: 'BTCUSDT', timeframe: '5m', market: 'futures' }, // Use 'futures' instead of 'linear'
+    // { symbol: 'ETHUSDT', timeframe: '15m', market: 'futures' }, // Use 'futures' instead of 'linear'
+    // { symbol: 'BTCUSDT', timeframe: '1h', market: 'futures' }  // Use 'futures' instead of 'linear'
   ];
   
   // Initialize trading instances for each pair
+  const tradingInstances = [];
   for (const pair of tradingPairs) {
     console.log(`Creating trading instance for ${pair.symbol} on ${pair.timeframe} timeframe`);
     
@@ -45,10 +60,13 @@ async function runTradingSystem() {
       timeframe: pair.timeframe,
       market: pair.market
     });
+    
+    tradingInstances.push(instance);
   }
   
   // Get account info
   try {
+    console.log('Getting account information...');
     const accountInfo = await bybitTrading.getAccountInfo();
     console.log('Account Information:');
     
@@ -102,21 +120,37 @@ async function runTradingSystem() {
   });
   
   console.log('Trading system running. Press Ctrl+C to stop.');
+  
+  return {
+    bybitTrading,
+    tradingInstances
+  };
 }
 
-// Create an example of how to manually place orders
-async function manualOrderExample(bybitTrading) {
+// Example of demo trading - placing a manual order
+async function demoDemoTrading(bybitTrading, tradingInstances) {
+  if (!bybitTrading.config.isDemo) {
+    console.error("This example is for demo trading only! Set BYBIT_DEMO=true to use it.");
+    return;
+  }
+  
+  console.log("\n=== DEMO TRADING EXAMPLE ===");
+  console.log("This will place a small market order on BTC using demo funds.");
+  
   try {
-    // Get an instance
-    const instance = bybitTrading.getInstance('BTCUSDT', '5m');
+    // Find BTCUSDT instance
+    const btcInstance = tradingInstances.find(
+      instance => instance.symbol === 'BTCUSDT' && instance.timeframe === '5m'
+    );
     
-    if (!instance) {
-      console.error('Trading instance for BTCUSDT not found');
+    if (!btcInstance) {
+      console.error('Could not find BTCUSDT trading instance');
       return;
     }
     
     // Get current market price
-    const marketData = await instance.getMarketData();
+    console.log('Getting current market data...');
+    const marketData = await btcInstance.getMarketData();
     if (!marketData) {
       console.error('Failed to get market data');
       return;
@@ -125,97 +159,57 @@ async function manualOrderExample(bybitTrading) {
     const currentPrice = parseFloat(marketData.lastPrice);
     console.log(`Current price of BTCUSDT: ${currentPrice}`);
     
-    // Example: Place a limit buy order 2% below market price
-    const limitPrice = (currentPrice * 0.98).toFixed(2);
-    const orderSize = '0.001'; // BTC
+    // Place a small market buy order (0.001 BTC)
+    console.log('Placing a demo market buy order for 0.001 BTC...');
     
-    console.log(`Placing limit buy order for ${orderSize} BTC at ${limitPrice}`);
-    
-    const orderResult = await instance.placeOrder({
+    const orderResult = await btcInstance.placeOrder({
       side: 'Buy',
-      orderType: 'Limit',
-      price: limitPrice,
-      qty: orderSize,
-      timeInForce: 'GTC'
+      orderType: 'Market',
+      qty: '0.001'
     });
     
-    console.log('Order placed:', orderResult);
+    console.log('Order placed successfully:', orderResult);
     
-    // Example: Get open orders
-    const openOrders = await instance.getOpenOrders();
-    console.log('Open orders:', openOrders);
-    
-  } catch (error) {
-    console.error('Error in manual order example:', error);
-  }
-}
-
-// Create an example of how to manage positions
-async function positionManagementExample(bybitTrading) {
-  try {
-    // Get an instance
-    const instance = bybitTrading.getInstance('BTCUSDT', '5m');
-    
-    if (!instance) {
-      console.error('Trading instance for BTCUSDT not found');
-      return;
-    }
-    
-    // Get current positions
-    const positions = await instance.getPositions();
-    
-    if (!positions || !positions.list || positions.list.length === 0) {
-      console.log('No open positions for BTCUSDT');
-      return;
-    }
-    
-    console.log('Current positions:');
-    positions.list.forEach(position => {
-      const side = parseFloat(position.size) > 0 ? 'Long' : 'Short';
-      console.log(`${side} position of ${Math.abs(position.size)} contracts at ${position.entryPrice}`);
-      console.log(`Unrealized P&L: ${position.unrealisedPnl}`);
-      
-      // Example: Set stop loss for position
-      if (parseFloat(position.size) !== 0) {
-        console.log('Setting stop loss...');
+    // Get positions after order
+    console.log('Checking positions after order...');
+    setTimeout(async () => {
+      try {
+        const positions = await btcInstance.getPositions();
+        console.log('Current positions:', positions);
         
-        // For a long position, set stop loss 2% below entry
-        // For a short position, set stop loss 2% above entry
-        const entryPrice = parseFloat(position.entryPrice);
-        const stopLossPrice = side === 'Long' 
-          ? (entryPrice * 0.98).toFixed(2) 
-          : (entryPrice * 1.02).toFixed(2);
-        
-        console.log(`Setting stop loss at ${stopLossPrice}`);
-        
-        // Set trading stop (stop loss)
-        bybitTrading.positionManager.setTradingStop(instance.category, instance.symbol, {
-          stopLoss: stopLossPrice,
-          slTriggerBy: 'MarkPrice',
-          positionIdx: position.positionIdx
-        }).then(result => {
-          console.log('Stop loss set:', result);
-        }).catch(error => {
-          console.error('Error setting stop loss:', error);
-        });
+        // Log account info again to see the change
+        const accountInfo = await bybitTrading.getAccountInfo();
+        if (accountInfo && accountInfo.list && accountInfo.list.length > 0) {
+          const unifiedAccount = accountInfo.list.find(a => a.accountType === 'UNIFIED');
+          if (unifiedAccount && unifiedAccount.coin) {
+            const btcBalance = unifiedAccount.coin.find(c => c.coin === 'BTC');
+            if (btcBalance) {
+              console.log(`Updated BTC balance: ${btcBalance.walletBalance} (${btcBalance.usdValue} USD)`);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error getting positions after order:', error);
       }
-    });
+    }, 2000); // Wait 2 seconds for the order to process
     
   } catch (error) {
-    console.error('Error in position management example:', error);
+    console.error('Error in demo trading example:', error);
   }
 }
 
-// Run the example
+// Run the trading system and demo trading example
 (async () => {
   try {
-    await runTradingSystem();
+    const { bybitTrading, tradingInstances } = await runTradingSystem();
     
-    // Uncomment to run manual order example after 10 seconds
-    // setTimeout(() => manualOrderExample(bybitTrading), 10000);
-    
-    // Uncomment to run position management example after 20 seconds
-    // setTimeout(() => positionManagementExample(bybitTrading), 20000);
+    // Wait a bit for initialization
+    setTimeout(() => {
+      // Only run the demo trading example if in demo mode
+      if (process.env.BYBIT_DEMO === 'true' && process.env.BYBIT_RUN_DEMO_EXAMPLE === 'true') {
+        demoDemoTrading(bybitTrading, tradingInstances);
+      }
+    }, 10000); // Wait 10 seconds
     
   } catch (error) {
     console.error('Error running trading system:', error);

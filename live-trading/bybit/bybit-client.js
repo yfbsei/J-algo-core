@@ -31,13 +31,11 @@ export const createBybitClient = (config = {}) => {
     enable_time_sync: true, // Auto-sync time
     strict_param_validation: true,
     disable_brackets_parsing: false,
-    // Add custom crypto provider for Node.js environment
-    cryptoProvider: { 
-      hmac: (message, secret) => {
-        return crypto.createHmac('sha256', secret)
-          .update(message)
-          .digest('hex');
-      }
+    // Enable demo trading mode if configured
+    demoTrading: isDemo,
+    // Add custom crypto provider for Node.js environment for faster HMAC signing
+    customSignMessageFn: async (message, secret) => {
+      return crypto.createHmac('sha256', secret).update(message).digest('hex');
     }
   });
 
@@ -49,10 +47,33 @@ export const createBybitClient = (config = {}) => {
   
   // Log trading mode
   console.log(`Initializing Bybit client in ${isDemo ? 'DEMO (paper trading)' : 'LIVE trading'} mode`);
-  console.log('IMPORTANT: Demo/Live mode is determined by the API keys, not by a client setting');
 
   return {
     rest: restClient,
+    
+    /**
+     * Request demo trading funds (only works in demo mode)
+     * @returns {Promise<Object>} - Result of the request
+     */
+    requestDemoFunds: async () => {
+      if (!isDemo) {
+        throw new Error('Demo funds can only be requested in demo trading mode');
+      }
+      
+      try {
+        const response = await restClient.requestDemoTradingFunds();
+        
+        if (response.retCode !== 0) {
+          throw new Error(`Bybit API error: ${response.retCode} - ${response.retMsg}`);
+        }
+        
+        console.log('Successfully requested demo trading funds');
+        return response.result;
+      } catch (error) {
+        console.error('Error requesting demo funds:', error);
+        throw error;
+      }
+    },
     
     /**
      * Get wallet balance
@@ -78,29 +99,42 @@ export const createBybitClient = (config = {}) => {
       }
     },
     
-    /**
+/**
      * Get positions for a symbol or all positions
      * @param {string} category - Category: linear, inverse, spot
-     * @param {string} [symbol] - Symbol to query
+     * @param {Object|string} symbolOrParams - Symbol string or parameters object
      * @returns {Promise<Object>} - Position information
      */
-    getPositions: async (category, symbol = undefined) => {
-      try {
-        const params = { category };
-        if (symbol) params.symbol = symbol;
-        
-        const response = await restClient.getPositionInfo(params);
-        
-        if (response.retCode !== 0) {
-          throw new Error(`Bybit API error: ${response.retCode} - ${response.retMsg}`);
-        }
-        
-        return response.result;
-      } catch (error) {
-        console.error('Error getting positions:', error);
-        throw error;
+getPositions: async (category, symbolOrParams = undefined) => {
+  try {
+    let params = { category };
+    
+    // Handle different parameter formats
+    if (typeof symbolOrParams === 'string') {
+      // If a string is passed, treat it as symbol
+      params.symbol = symbolOrParams;
+    } else if (symbolOrParams && typeof symbolOrParams === 'object') {
+      // If an object is passed, merge it with params
+      params = { ...params, ...symbolOrParams };
+    } else if (!symbolOrParams) {
+      // If nothing is passed, need to add settleCoin for linear
+      if (category === 'linear') {
+        params.settleCoin = 'USDT';
       }
-    },
+    }
+    
+    const response = await restClient.getPositionInfo(params);
+    
+    if (response.retCode !== 0) {
+      throw new Error(`Bybit API error: ${response.retCode} - ${response.retMsg}`);
+    }
+    
+    return response.result;
+  } catch (error) {
+    console.error('Error getting positions:', error);
+    throw error;
+  }
+},
     
     /**
      * Place an order
@@ -109,8 +143,7 @@ export const createBybitClient = (config = {}) => {
      */
     placeOrder: async (orderParams) => {
       try {
-        // Demo trading is handled at account/API key level in Bybit
-        // so we don't need special handling here
+        // Demo trading is handled automatically by the client
         const response = await restClient.submitOrder(orderParams);
         
         if (response.retCode !== 0) {

@@ -40,7 +40,21 @@ export const createPositionManager = (bybitClient, options = {}) => {
    */
   const updatePositionCache = async (category, symbol = undefined) => {
     try {
-      const positions = await bybitClient.getPositions(category, symbol);
+      // Fix: The API requires either a symbol or settleCoin
+      // If no symbol is provided, we need to add a default settleCoin for futures categories
+      const params = {};
+      if (symbol) {
+        params.symbol = symbol;
+      } else if (category === 'linear') {
+        // Use USDT as default settleCoin for linear futures
+        params.settleCoin = 'USDT';
+      } else if (category === 'inverse') {
+        // For inverse futures, we need a symbol since settleCoin varies
+        console.log('Warning: For inverse futures, a symbol is required. Using default BTC.');
+        params.symbol = 'BTCUSD';
+      }
+      
+      const positions = await bybitClient.getPositions(category, params);
       
       if (!positions || !positions.list) {
         console.warn('No positions returned from API');
