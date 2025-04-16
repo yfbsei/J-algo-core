@@ -167,7 +167,10 @@ const connect = (market) => {
       // Set up ping interval
       const pingInterval = setInterval(() => {
         if (ws && ws.readyState === WebSocket.OPEN) {
-          console.log(`[WS-${market}] Sending ping...`);
+              // Only log ping in debug mode
+         if (config.enableDebug) {
+           console.log(`[WS-${market}] Sending ping...`);
+         }
           try {
             ws.send(JSON.stringify({ op: 'ping' }));
           } catch (err) {
@@ -215,8 +218,10 @@ const connect = (market) => {
         
         // Handle data messages
         if (message.topic) {
-          // Just log the topic for debugging, don't log the entire message (too verbose)
+        // Only log in debug mode
+         if (config.enableDebug) {
           console.log(`[WS-${market}] Received data for topic: ${message.topic}`);
+          }
           
           // Kline/candlestick data
           if (message.topic.includes('kline')) {

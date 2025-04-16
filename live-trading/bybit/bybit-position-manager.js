@@ -50,7 +50,9 @@ export const createPositionManager = (bybitClient, options = {}) => {
         params.settleCoin = 'USDT';
       } else if (category === 'inverse') {
         // For inverse futures, we need a symbol since settleCoin varies
-        console.log('Warning: For inverse futures, a symbol is required. Using default BTC.');
+        if (config.enableDebug) {
+          console.log('Warning: For inverse futures, a symbol is required. Using default BTC.');
+        }
         params.symbol = 'BTCUSD';
       }
       
