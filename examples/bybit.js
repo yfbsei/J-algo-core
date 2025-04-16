@@ -17,14 +17,15 @@ async function runTradingSystem() {
     apiKey: process.env.BYBIT_API_KEY,
     apiSecret: process.env.BYBIT_API_SECRET,
     isDemo: process.env.BYBIT_DEMO === 'true',
-    leverage: parseFloat(process.env.BYBIT_LEVERAGE || '3.0'),
-    initialCapital: parseFloat(process.env.BYBIT_INITIAL_CAPITAL || '1000'),
-    riskPerTrade: parseFloat(process.env.BYBIT_RISK_PER_TRADE || '2.0'),
-    rewardMultiple: parseFloat(process.env.BYBIT_REWARD_MULTIPLE || '1.5'),
+    leverage: parseFloat(process.env.BYBIT_LEVERAGE || '10'),
+    initialCapital: parseFloat(process.env.BYBIT_INITIAL_CAPITAL || '100'),
+    riskPerTrade: parseFloat(process.env.BYBIT_RISK_PER_TRADE || '0.1'),
+    rewardMultiple: parseFloat(process.env.BYBIT_REWARD_MULTIPLE || '0.5'),
     enableAutoTrading: process.env.BYBIT_AUTO_TRADING === 'true',
     enableDebug: process.env.BYBIT_DEBUG === 'true',
     logLevel: process.env.BYBIT_LOG_LEVEL || 'info',
-    // Demo trading specific options
+    
+    syncAccountBalance: process.env.BYBIT_SYNC_ACCOUNT_BALANCE === 'true',
     requestDemoFundsOnStart: process.env.BYBIT_REQUEST_DEMO_FUNDS === 'true',
     useFastHmacSigning: process.env.BYBIT_FAST_HMAC !== 'false'
   };
@@ -33,7 +34,7 @@ async function runTradingSystem() {
   const bybitTrading = new BybitLiveTrading(config);
   
   // If in demo mode and not auto-requesting funds, request funds manually
-  if (config.isDemo && !config.requestDemoFundsOnStart) {
+  if (config.isDemo && config.requestDemoFundsOnStart) {
     try {
       console.log('Requesting demo trading funds...');
       await bybitTrading.requestDemoFunds();
@@ -45,9 +46,8 @@ async function runTradingSystem() {
   
   // Define trading pairs and timeframes
   const tradingPairs = [
-    { symbol: 'BTCUSDT', timeframe: '5m', market: 'futures' }, // Use 'futures' instead of 'linear'
-    { symbol: 'ETHUSDT', timeframe: '15m', market: 'futures' }, // Use 'futures' instead of 'linear'
-    // { symbol: 'BTCUSDT', timeframe: '1h', market: 'futures' }  // Use 'futures' instead of 'linear'
+    { symbol: 'BTCUSDT', timeframe: '1m', market: 'futures' }, // Use 'futures' instead of 'linear'
+    { symbol: 'ETHUSDT', timeframe: '1m', market: 'futures' }, // Use 'futures' instead of 'linear'
   ];
   
 // Initialize trading instances for each pair with a delay

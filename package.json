@@ -5,11 +5,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node example-usage.js",
-    "start:multi": "node examples/multi-exchange-example.js",
-    "start:binance": "node examples/binance-example.js",
-    "start:bybit": "node examples/bybit-example.js"
+    "start": "node examples/bybit.js"
   },
   "author": "yfbsei",
   "license": "ISC",

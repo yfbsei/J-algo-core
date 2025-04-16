@@ -82,6 +82,50 @@ class BybitLiveTrading {
     }
     
     this.logger.info('Bybit Live Trading module initialized');
+
+    this.syncAccountBalance = async () => {
+      try {
+        console.log('Syncing account balance from Bybit...');
+        const accountInfo = await this.bybitClient.getWalletBalance('UNIFIED');
+        
+        if (accountInfo && accountInfo.list && accountInfo.list.length > 0) {
+          let totalBalance = 0;
+          accountInfo.list.forEach(account => {
+            if (account.coin) {
+              account.coin.forEach(coin => {
+                if (coin.coin === 'USDT') {
+                  totalBalance += parseFloat(coin.walletBalance);
+                }
+              });
+            }
+          });
+          
+          if (totalBalance > 0 && totalBalance !== this.config.initialCapital) {
+            console.log(`Detected account balance: $${totalBalance}`);
+            console.log(`Configured initial capital: $${this.config.initialCapital}`);
+            console.log(`Updating risk calculations to use actual balance: $${totalBalance}`);
+            
+            // Update the config
+            this.config.initialCapital = totalBalance;
+            
+            return true;
+          }
+        }
+        return false;
+      } catch (error) {
+        this.logger.error('Error syncing account balance:', error);
+        return false;
+      }
+    };
+
+    this.syncAccountBalance().then(updated => {
+      if (updated) {
+        this.logger.info(`Risk calculations will use actual account balance: $${this.config.initialCapital}`);
+      } else {
+        this.logger.info(`Using configured initial capital: $${this.config.initialCapital}`);
+      }
+    });
+
   }
   
   /**
