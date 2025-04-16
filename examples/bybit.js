@@ -46,13 +46,17 @@ async function runTradingSystem() {
   // Define trading pairs and timeframes
   const tradingPairs = [
     { symbol: 'BTCUSDT', timeframe: '5m', market: 'futures' }, // Use 'futures' instead of 'linear'
-    // { symbol: 'ETHUSDT', timeframe: '15m', market: 'futures' }, // Use 'futures' instead of 'linear'
+    { symbol: 'ETHUSDT', timeframe: '15m', market: 'futures' }, // Use 'futures' instead of 'linear'
     // { symbol: 'BTCUSDT', timeframe: '1h', market: 'futures' }  // Use 'futures' instead of 'linear'
   ];
   
-  // Initialize trading instances for each pair
-  const tradingInstances = [];
-  for (const pair of tradingPairs) {
+// Initialize trading instances for each pair with a delay
+const tradingInstances = [];
+for (let i = 0; i < tradingPairs.length; i++) {
+  const pair = tradingPairs[i];
+  console.log(`Setting up trading instance for ${pair.symbol} on ${pair.timeframe} timeframe (will initialize in ${i * 3} seconds)`);
+  
+  setTimeout(() => {
     console.log(`Creating trading instance for ${pair.symbol} on ${pair.timeframe} timeframe`);
     
     const instance = bybitTrading.createTradingInstance({
@@ -62,7 +66,8 @@ async function runTradingSystem() {
     });
     
     tradingInstances.push(instance);
-  }
+  }, i * 3000); // 3 seconds between each instance creation
+}
   
   // Get account info
   try {

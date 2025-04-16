@@ -17,6 +17,8 @@ export const createMarketDataHandler = (options = {}) => {
     pingInterval: 20000, // 20 seconds (Bybit requires ping every 30 seconds)
     reconnectDelay: 5000, // 5 seconds delay before reconnecting
     maxReconnectAttempts: 10,
+    useIndividualConnections: true, // New option to separate connections
+    enableDebug: false, // Default to false
   };
   
   const config = { ...defaultOptions, ...options };
@@ -74,65 +76,70 @@ export const createMarketDataHandler = (options = {}) => {
   };
   
 /**
-   * Connect to WebSocket for a specific market
-   * @param {string} market - Market type (spot, linear, inverse)
-   */
-const connect = (market) => {
+ * Connect to WebSocket for a specific connection key
+ * @param {string} connectionKey - Connection identifier (market or market-symbol-interval)
+ * @param {string} [market] - Market type (spot, linear, inverse)
+ */
+const connect = (connectionKey, market) => {
   try {
+    // Extract market from connectionKey if using individual connections
+    const actualMarket = market || connectionKey.split('-')[0];
+    
     // If connection already exists, close it
-    if (wsConnections.has(market)) {
-      const ws = wsConnections.get(market);
+    if (wsConnections.has(connectionKey)) {
+      const ws = wsConnections.get(connectionKey);
       if (ws) {
         try {
-          console.log(`[WS-${market}] Terminating existing connection (state: ${ws.readyState})`);
+          console.log(`[WS-${connectionKey}] Terminating existing connection (state: ${ws.readyState})`);
           ws.terminate();
         } catch (err) {
-          console.error(`[WS-${market}] Error terminating WebSocket:`, err);
+          console.error(`[WS-${connectionKey}] Error terminating WebSocket:`, err);
         }
       }
       
       // Clear ping interval
-      if (pingIntervals.has(market)) {
-        console.log(`[WS-${market}] Clearing ping interval`);
-        clearInterval(pingIntervals.get(market));
-        pingIntervals.delete(market);
+      if (pingIntervals.has(connectionKey)) {
+        console.log(`[WS-${connectionKey}] Clearing ping interval`);
+        clearInterval(pingIntervals.get(connectionKey));
+        pingIntervals.delete(connectionKey);
       }
     }
     
     // Initialize reconnect count if needed
-    if (!reconnectCounts.has(market)) {
-      reconnectCounts.set(market, 0);
+    if (!reconnectCounts.has(connectionKey)) {
+      reconnectCounts.set(connectionKey, 0);
     }
     
     // Get WebSocket URL for this market
-    const wsUrl = getWebSocketUrl(market);
-    console.log(`[WS-${market}] Connecting to Bybit WebSocket at ${wsUrl}...`);
+    const reconnectCount = reconnectCounts.get(connectionKey) || 0;
+    const wsUrl = getWebSocketUrl(actualMarket, reconnectCount);
+    console.log(`[WS-${connectionKey}] Connecting to Bybit WebSocket at ${wsUrl}...`);
     
     // Create new connection with error handling
     let ws;
     try {
       // Log DNS lookup before connecting
       const urlObj = new URL(wsUrl);
-      console.log(`[WS-${market}] Resolving hostname: ${urlObj.hostname}`);
+      console.log(`[WS-${connectionKey}] Resolving hostname: ${urlObj.hostname}`);
       
       ws = new WebSocket(wsUrl);
-      wsConnections.set(market, ws);
-      console.log(`[WS-${market}] WebSocket instance created`);
+      wsConnections.set(connectionKey, ws);
+      console.log(`[WS-${connectionKey}] WebSocket instance created`);
     } catch (err) {
-      console.error(`[WS-${market}] Failed to create WebSocket:`, err);
+      console.error(`[WS-${connectionKey}] Failed to create WebSocket:`, err);
       // Schedule reconnect
-      setTimeout(() => connect(market), config.reconnectDelay);
+      setTimeout(() => connect(connectionKey, actualMarket), config.reconnectDelay);
       return;
     }
     
     // Set timeout for connection
     const connectionTimeout = setTimeout(() => {
       if (ws.readyState !== WebSocket.OPEN) {
-        console.error(`[WS-${market}] Connection timeout after 10 seconds (state: ${ws.readyState})`);
+        console.error(`[WS-${connectionKey}] Connection timeout after 10 seconds (state: ${ws.readyState})`);
         try {
           ws.terminate();
         } catch (err) {
-          console.error(`[WS-${market}] Error terminating timed-out connection:`, err);
+          console.error(`[WS-${connectionKey}] Error terminating timed-out connection:`, err);
         }
         // Connection will be retried in the close event handler
       }
@@ -140,12 +147,12 @@ const connect = (market) => {
     
     // Track state changes
     const originalReadyState = ws.readyState;
-    console.log(`[WS-${market}] Initial readyState: ${originalReadyState}`);
+    console.log(`[WS-${connectionKey}] Initial readyState: ${originalReadyState}`);
     
     // Monitor readyState changes
     const readyStateInterval = setInterval(() => {
       if (ws && ws.readyState !== originalReadyState) {
-        console.log(`[WS-${market}] ReadyState changed: ${originalReadyState} -> ${ws.readyState}`);
+        console.log(`[WS-${connectionKey}] ReadyState changed: ${originalReadyState} -> ${ws.readyState}`);
         clearInterval(readyStateInterval);
       }
     }, 500);
@@ -158,36 +165,37 @@ const connect = (market) => {
     ws.on('open', () => {
       clearTimeout(connectionTimeout);
       clearInterval(readyStateInterval);
-      console.log(`[WS-${market}] Connection opened successfully`);
-      reconnectCounts.set(market, 0);
+      console.log(`[WS-${connectionKey}] Connection opened successfully`);
+      reconnectCounts.set(connectionKey, 0);
       
-      // Resubscribe to channels for this market
-      resubscribe(market);
+      // Resubscribe to channels for this connection
+      resubscribe(connectionKey);
       
       // Set up ping interval
       const pingInterval = setInterval(() => {
         if (ws && ws.readyState === WebSocket.OPEN) {
-              // Only log ping in debug mode
-         if (config.enableDebug) {
-           console.log(`[WS-${market}] Sending ping...`);
-         }
+          // Only log ping messages in debug mode
+          if (config.enableDebug) {
+            console.log(`[WS-${connectionKey}] Sending ping...`);
+          }
+          
           try {
             ws.send(JSON.stringify({ op: 'ping' }));
           } catch (err) {
-            console.error(`[WS-${market}] Error sending ping:`, err);
+            console.error(`[WS-${connectionKey}] Error sending ping:`, err);
             
             // If we can't send a ping, the connection might be broken
             if (ws.readyState === WebSocket.OPEN) {
-              console.log(`[WS-${market}] Connection appears broken despite OPEN state, terminating...`);
+              console.log(`[WS-${connectionKey}] Connection appears broken despite OPEN state, terminating...`);
               ws.terminate();
             }
           }
         } else if (ws) {
-          console.log(`[WS-${market}] Cannot send ping, connection not open (state: ${ws.readyState})`);
+          console.log(`[WS-${connectionKey}] Cannot send ping, connection not open (state: ${ws.readyState})`);
         }
       }, config.pingInterval);
       
-      pingIntervals.set(market, pingInterval);
+      pingIntervals.set(connectionKey, pingInterval);
     });
     
     ws.on('message', (data) => {
@@ -196,14 +204,16 @@ const connect = (market) => {
         
         // Handle pong message
         if (message.op === 'pong') {
-          console.log(`[WS-${market}] Received pong response`);
+          if (config.enableDebug) {
+            console.log(`[WS-${connectionKey}] Received pong response`);
+          }
           return;
         }
         
         // Handle subscription success
         if (message.op === 'subscribe') {
           if (message.success) {
-            console.log(`[WS-${market}] Successfully subscribed to channels:`, message.args || []);
+            console.log(`[WS-${connectionKey}] Successfully subscribed to channels:`, message.args || []);
             
             // Clear subscription timeout if it exists
             if (ws._subTimeout) {
@@ -211,16 +221,16 @@ const connect = (market) => {
               ws._subTimeout = null;
             }
           } else {
-            console.error(`[WS-${market}] Subscription failed:`, message);
+            console.error(`[WS-${connectionKey}] Subscription failed:`, message);
           }
           return;
         }
         
         // Handle data messages
         if (message.topic) {
-        // Only log in debug mode
-         if (config.enableDebug) {
-          console.log(`[WS-${market}] Received data for topic: ${message.topic}`);
+          // Only log topic updates in debug mode
+          if (config.enableDebug) {
+            console.log(`[WS-${connectionKey}] Received data for topic: ${message.topic}`);
           }
           
           // Kline/candlestick data
@@ -233,20 +243,20 @@ const connect = (market) => {
           }
         }
       } catch (error) {
-        console.error(`[WS-${market}] Error processing message:`, error);
-        console.error(`[WS-${market}] Raw message:`, data.toString().substring(0, 200) + '...');
+        console.error(`[WS-${connectionKey}] Error processing message:`, error);
+        console.error(`[WS-${connectionKey}] Raw message:`, data.toString().substring(0, 200) + '...');
       }
     });
     
     ws.on('error', (error) => {
       clearTimeout(connectionTimeout);
       clearInterval(readyStateInterval);
-      console.error(`[WS-${market}] WebSocket error:`, error);
+      console.error(`[WS-${connectionKey}] WebSocket error:`, error);
       
       // Check connection properties
       if (ws) {
-        console.log(`[WS-${market}] Connection state at error: ${ws.readyState}`);
-        console.log(`[WS-${market}] Connection details:`, {
+        console.log(`[WS-${connectionKey}] Connection state at error: ${ws.readyState}`);
+        console.log(`[WS-${connectionKey}] Connection details:`, {
           bufferedAmount: ws.bufferedAmount,
           protocol: ws.protocol || 'none'
         });
@@ -258,50 +268,53 @@ const connect = (market) => {
     ws.on('close', (code, reason) => {
       clearTimeout(connectionTimeout);
       clearInterval(readyStateInterval);
-      console.log(`[WS-${market}] Connection closed with code ${code}${reason ? ': ' + reason : ''}`);
+      console.log(`[WS-${connectionKey}] Connection closed with code ${code}${reason ? ': ' + reason : ''}`);
       
       // Clear ping interval
-      if (pingIntervals.has(market)) {
-        clearInterval(pingIntervals.get(market));
-        pingIntervals.delete(market);
+      if (pingIntervals.has(connectionKey)) {
+        clearInterval(pingIntervals.get(connectionKey));
+        pingIntervals.delete(connectionKey);
       }
       
       // Reconnect logic
-      const reconnectCount = reconnectCounts.get(market) || 0;
-      reconnectCounts.set(market, reconnectCount + 1);
+      const reconnectCount = reconnectCounts.get(connectionKey) || 0;
+      reconnectCounts.set(connectionKey, reconnectCount + 1);
       
       if (reconnectCount < config.maxReconnectAttempts) {
-        // Use fixed reconnect delay to avoid IPv6/connectivity issues
-        const reconnectDelay = 5000; // Fixed 5 second delay
-        console.log(`[WS-${market}] Reconnecting in ${reconnectDelay}ms (attempt ${reconnectCount + 1}/${config.maxReconnectAttempts})...`);
+        // Use exponential backoff for reconnect delay
+        const reconnectDelay = Math.min(
+          30000, // Cap at 30 seconds
+          config.reconnectDelay * Math.pow(1.5, reconnectCount)
+        );
+        console.log(`[WS-${connectionKey}] Reconnecting in ${reconnectDelay}ms (attempt ${reconnectCount + 1}/${config.maxReconnectAttempts})...`);
         
         setTimeout(() => {
-          connect(market);
+          connect(connectionKey, actualMarket);
         }, reconnectDelay);
       } else {
-        console.error(`[WS-${market}] Failed to reconnect after ${config.maxReconnectAttempts} attempts`);
+        console.error(`[WS-${connectionKey}] Failed to reconnect after ${config.maxReconnectAttempts} attempts`);
         
         // Try an alternative WebSocket URL approach
-        console.log(`[WS-${market}] Attempting alternative connection approach...`);
+        console.log(`[WS-${connectionKey}] Attempting alternative connection approach...`);
         
         // Reset reconnect count so we can try again with the new approach
-        reconnectCounts.set(market, 0);
+        reconnectCounts.set(connectionKey, 0);
         
-        // Try to connect with explicit IPv4 DNS resolution
+        // Try to connect with a different URL
         setTimeout(() => {
-          // Will use the original connection method, but with reset counter
-          connect(market);
+          connect(connectionKey, actualMarket);
         }, 10000); // Wait 10 seconds before trying again
       }
     });
     
   } catch (error) {
-    console.error(`[WS-${market}] Error setting up connection:`, error);
+    console.error(`[WS-${connectionKey}] Error setting up connection:`, error);
     
     // Schedule reconnect
-    setTimeout(() => connect(market), config.reconnectDelay);
+    setTimeout(() => connect(connectionKey, market), config.reconnectDelay);
   }
 };
+
   
 /**
    * Resubscribe to all channels for a market after reconnect
@@ -481,34 +494,45 @@ const resubscribe = (market) => {
      */
     subscribeToCandlesticks: (market, symbol, interval, callback) => {
       try {
-        // Ensure connection exists for this market
-        if (!wsConnections.has(market) || wsConnections.get(market).readyState !== WebSocket.OPEN) {
-          connect(market);
-        }
-        
         const channelName = `kline.${interval}.${symbol}`;
+        const connectionKey = config.useIndividualConnections ? 
+          `${market}-${symbol}-${interval}` : market;
         
-        // Add to subscriptions map for this market
-        if (!subscriptions.has(market)) {
-          subscriptions.set(market, new Set());
+        // Add to subscriptions map for this connection
+        if (!subscriptions.has(connectionKey)) {
+          subscriptions.set(connectionKey, new Set());
         }
-        subscriptions.get(market).add(channelName);
+        subscriptions.get(connectionKey).add(channelName);
         
         // Add the callback
-        const key = `${symbol}-${interval}`;
-        if (!candleCallbacks.has(key)) {
-          candleCallbacks.set(key, new Set());
+        const callbackKey = `${symbol}-${interval}`;
+        if (!candleCallbacks.has(callbackKey)) {
+          candleCallbacks.set(callbackKey, new Set());
         }
-        candleCallbacks.get(key).add(callback);
+        candleCallbacks.get(callbackKey).add(callback);
+        
+        // Ensure connection exists for this key
+        if (!wsConnections.has(connectionKey) || 
+            wsConnections.get(connectionKey).readyState !== WebSocket.OPEN) {
+          connect(connectionKey, market);
+        }
         
         // Subscribe if already connected
-        const ws = wsConnections.get(market);
+        const ws = wsConnections.get(connectionKey);
         if (ws && ws.readyState === WebSocket.OPEN) {
-          const subMsg = JSON.stringify({
-            op: 'subscribe',
-            args: [channelName]
-          });
-          ws.send(subMsg);
+          // Implement rate limiting - wait a moment before sending subscription
+          setTimeout(() => {
+            try {
+              const subMsg = JSON.stringify({
+                op: 'subscribe',
+                args: [channelName]
+              });
+              ws.send(subMsg);
+              console.log(`[WS-${connectionKey}] Sent subscription for ${channelName}`);
+            } catch (error) {
+              console.error(`[WS-${connectionKey}] Error sending subscription:`, error);
+            }
+          }, 500); // 500ms delay before subscription
         }
         
         return true;

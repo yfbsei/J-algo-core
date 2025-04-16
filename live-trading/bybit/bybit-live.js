@@ -64,7 +64,8 @@ class BybitLiveTrading {
     this.marketData = createMarketDataHandler({
       reconnectDelay: this.config.webSocketReconnectDelay,
       maxReconnectAttempts: this.config.maxReconnectAttempts,
-      preferredWebSocketUrls: preferredWebSocketUrls
+      preferredWebSocketUrls: preferredWebSocketUrls,
+      enableDebug: this.config.enableDebug
     });
     
     this.accountInfo = createAccountInfoHandler(this.bybitClient);
@@ -234,10 +235,15 @@ class BybitLiveTrading {
     // Store the instance
     this.tradingInstances.set(instanceKey, instance);
     
-    // Initialize the instance
-    instance.init().catch(error => {
-      this.logger.error(`Failed to initialize trading instance for ${symbol}:`, error);
-    });
+// Initialize the instance with a delay if there are other instances
+const instanceCount = this.tradingInstances.size;
+const delay = instanceCount * 2000; // 2 seconds between each initialization
+
+setTimeout(() => {
+  instance.init().catch(error => {
+    this.logger.error(`Failed to initialize trading instance for ${symbol}:`, error);
+  });
+}, delay);
     
     return instance;
   }
