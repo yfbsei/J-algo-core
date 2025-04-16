@@ -27,7 +27,7 @@ export const createBybitClient = (config = {}) => {
     key: apiKey,
     secret: apiSecret,
     testnet: false, // Always use mainnet (even for demo trading)
-    recv_window: 5000, // 5 seconds
+    recv_window: 10000, // 10 seconds
     enable_time_sync: true, // Auto-sync time
     strict_param_validation: true,
     disable_brackets_parsing: false,
