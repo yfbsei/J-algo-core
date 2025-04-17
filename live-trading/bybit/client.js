@@ -2,7 +2,7 @@ import { RestClientV5 } from 'bybit-api';
 import crypto from 'crypto';
 import { round } from 'mathjs';
 
-  // Create the Bybit REST client
+  // Create the Bybit REST restClient
   const restClient = new RestClientV5({
     key: "Kz10q3ZbhOqEoPbVg8",
     secret: "L20xiFdQoADEp1GfoYE7blDV1LrFyudukdM8",
@@ -57,7 +57,7 @@ async function closePosition(symbol = 'BTCUSDT') {
   }
 
   async function calculateQty({ symbol = 'BTCUSDT', usdtAmount = 100 }) {
-    const { result } = await client.getTickers({ category: 'linear', symbol });
+    const { result } = await restClient.getTickers({ category: 'linear', symbol });
     const price = parseFloat(result.list[0].lastPrice);
   
     const qty = (usdtAmount / price).toFixed(6); // adjust decimal places based on symbol's min qty
@@ -78,7 +78,7 @@ async function submitTradeWithTP({ symbol = 'BTCUSDT', side = 'Buy', qty = '0.01
     try {
 
     // 1. Set leverage
-    await client.setLeverage({
+    await restClient.setLeverage({
         category: 'linear',
         symbol,
         buyLeverage: side === 'Buy' ? leverage.toString() : '1',
@@ -88,7 +88,7 @@ async function submitTradeWithTP({ symbol = 'BTCUSDT', side = 'Buy', qty = '0.01
       console.log(`⚙️ Leverage set to ${leverage}x for ${side} side`);
   
       // 2. Submit market order with TP
-      const order = await client.submitOrder({
+      const order = await restClient.submitOrder({
         category: 'linear',
         symbol,
         side,
