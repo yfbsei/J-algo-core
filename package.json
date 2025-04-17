@@ -5,7 +5,8 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node examples/bybit.js"
+    "test": "node live-trading/bybit/client.js",
+    "start": "node live-trading/bybit/live.js"
   },
   "author": "yfbsei",
   "license": "ISC",

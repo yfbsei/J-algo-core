@@ -208,7 +208,7 @@ class BybitWebsocketFeed {
                 
                 // Log candles that are complete (confirm = true)
                 if (candle.confirm) {
-                    console.log(`New completed ${this.timeframe} candle for ${this.symbol} (Bybit): O=${candle.open} H=${candle.high} L=${candle.low} C=${candle.close}`);
+                    //console.log(`New completed ${this.timeframe} candle for ${this.symbol} (Bybit): O=${candle.open} H=${candle.high} L=${candle.low} C=${candle.close}`);
                 }
             }
         } catch (error) {
