@@ -31,18 +31,18 @@ const getMarketData = async (provider, market, symbol, interval, limit) => {
  * @param {string} market - Market type ('spot' or 'futures')
  * @returns {string} - WebSocket base URL
  */
-const getWebSocketBaseUrl = (provider, market) => {
-    switch (provider.toLowerCase()) {
-        case 'binance':
-            return market === 'spot' 
-                ? 'wss://stream.binance.com:9443/ws'
-                : 'wss://fstream.binance.com/ws';
-        case 'bybit':
-            return 'wss://stream.bybit.com/v5/public';
-        default:
-            throw new Error(`Unsupported exchange provider: ${provider}`);
-    }
-};
+// const getWebSocketBaseUrl = (provider, market) => {
+//     switch (provider.toLowerCase()) {
+//         case 'binance':
+//             return market === 'spot' 
+//                 ? 'wss://stream.binance.com:9443/ws'
+//                 : 'wss://fstream.binance.com/ws';
+//         case 'bybit':
+//             return 'wss://stream.bybit.com/v5/public';
+//         default:
+//             throw new Error(`Unsupported exchange provider: ${provider}`);
+//     }
+// };
 
 /**
  * Convert standard interval to provider-specific format
@@ -82,46 +82,46 @@ const convertInterval = (provider, interval) => {
  * @param {Object} wsData - WebSocket data from exchange
  * @returns {Object|null} - Standardized candle data or null if invalid
  */
-const formatWebSocketCandle = (provider, wsData) => {
-    try {
-        if (provider.toLowerCase() === 'binance') {
-            // Binance format already matches our expected format
-            if (wsData.e === 'kline') {
-                return {
-                    t: wsData.k.t,
-                    o: wsData.k.o,
-                    h: wsData.k.h,
-                    l: wsData.k.l,
-                    c: wsData.k.c,
-                    v: wsData.k.v,
-                    x: wsData.k.x // candle closed
-                };
-            }
-        } else if (provider.toLowerCase() === 'bybit') {
-            // Convert Bybit format to our standard format
-            if (wsData.topic && wsData.topic.includes('kline')) {
-                const data = wsData.data[0];
-                return {
-                    t: parseInt(data.start),
-                    o: data.open,
-                    h: data.high,
-                    l: data.low,
-                    c: data.close,
-                    v: data.volume,
-                    x: data.confirm // candle closed
-                };
-            }
-        }
-        return null; // Not a candle or unsupported format
-    } catch (error) {
-        console.error(`Error formatting WebSocket candle for ${provider}:`, error);
-        return null;
-    }
-};
+// const formatWebSocketCandle = (provider, wsData) => {
+//     try {
+//         if (provider.toLowerCase() === 'binance') {
+//             // Binance format already matches our expected format
+//             if (wsData.e === 'kline') {
+//                 return {
+//                     t: wsData.k.t,
+//                     o: wsData.k.o,
+//                     h: wsData.k.h,
+//                     l: wsData.k.l,
+//                     c: wsData.k.c,
+//                     v: wsData.k.v,
+//                     x: wsData.k.x // candle closed
+//                 };
+//             }
+//         } else if (provider.toLowerCase() === 'bybit') {
+//             // Convert Bybit format to our standard format
+//             if (wsData.topic && wsData.topic.includes('kline')) {
+//                 const data = wsData.data[0];
+//                 return {
+//                     t: parseInt(data.start),
+//                     o: data.open,
+//                     h: data.high,
+//                     l: data.low,
+//                     c: data.close,
+//                     v: data.volume,
+//                     x: data.confirm // candle closed
+//                 };
+//             }
+//         }
+//         return null; // Not a candle or unsupported format
+//     } catch (error) {
+//         console.error(`Error formatting WebSocket candle for ${provider}:`, error);
+//         return null;
+//     }
+// };
 
 export {
     getMarketData,
-    getWebSocketBaseUrl,
+    //getWebSocketBaseUrl,
     convertInterval,
-    formatWebSocketCandle
+    //formatWebSocketCandle
 };

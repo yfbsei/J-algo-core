@@ -13,6 +13,8 @@ class BybitWebsocketFeed {
         this.symbol = options.symbol || 'BTCUSDT';
         this.timeframe = options.timeframe || '5m';
         this.market = options.market || 'futures'; // 'futures' or 'spot'
+        this.rewardMultiple = options.rewardMultiple || 1;
+        this.scalpMode = options.scalpMode || false;
         
         // Initialize websocket connection
         this.ws = null;
@@ -22,9 +24,6 @@ class BybitWebsocketFeed {
         
         // Store event handlers from options or use defaults
         this.onSignal = options.onSignal || this.handleSignal.bind(this);
-        this.onPositionOpen = options.onPositionOpen || this.handlePositionOpen.bind(this);
-        this.onPositionClosed = options.onPositionClosed || this.handlePositionClosed.bind(this);
-        this.onTakeProfitHit = options.onTakeProfitHit || this.handleTakeProfitHit.bind(this);
         this.onError = options.onError || this.handleError.bind(this);
         
         // Initialize Jalgo with Bybit as provider
@@ -33,18 +32,11 @@ class BybitWebsocketFeed {
             timeframe: this.timeframe,
             market: this.market,
             provider: 'bybit', // Set provider to Bybit
-            riskOptions: options.riskOptions || {
-                initialCapital: 1000,
-                riskPerTrade: 2.0,
-                rewardMultiple: 1.5,
-                useLeverage: this.market === 'futures',
-                leverageAmount: 3.0
-            },
+            rewardMultiple: this.rewardMultiple,
+            scalpMode: this.scalpMode,
+
             // Pass all event handlers to Jalgo
             onSignal: this.onSignal,
-            onPositionOpen: this.onPositionOpen,
-            onPositionClosed: this.onPositionClosed,
-            onTakeProfitHit: this.onTakeProfitHit,
             onError: this.onError
         });
         
@@ -227,69 +219,11 @@ class BybitWebsocketFeed {
     }
     
     /**
-     * Handle new position opened from Jalgo
-     * @param {Object} position - Position information
-     */
-    handlePositionOpen(position) {
-        console.log('--------------------------------------------------');
-        console.log(`🔔 NEW POSITION OPENED (Bybit ${this.symbol}): ${position.position.toUpperCase()} @ ${position.entry}`);
-        console.log(`Target: ${position.target}`);
-        console.log(`Reference Stop: ${position.refStop}`);
-        console.log(`Risk Amount: $${position.risk}`);
-        console.log('--------------------------------------------------');
-    }
-    
-    /**
-     * Handle position closed from Jalgo
-     * @param {Object} result - Position close result
-     */
-    handlePositionClosed(result) {
-        console.log('--------------------------------------------------');
-        console.log(`🏁 POSITION CLOSED (Bybit ${this.symbol}): ${result.position.toUpperCase()} @ ${result.exit}`);
-        console.log(`Close Reason: ${result.closeReason}`);
-        const profitOrLoss = result.pnl >= 0 ? `PROFIT: +$${result.pnl.toFixed(2)}` : `LOSS: -$${Math.abs(result.pnl).toFixed(2)}`;
-        console.log(profitOrLoss);
-        console.log(`Capital: $${result.capitalAfter.toFixed(2)}`);
-        console.log('--------------------------------------------------');
-    }
-    
-    /**
-     * Handle take profit hits from Jalgo
-     * @param {Object} result - Take profit result
-     */
-    handleTakeProfitHit(result) {
-        console.log('--------------------------------------------------');
-        console.log(`🎯 TARGET HIT (Bybit ${this.symbol}): ${result.position.toUpperCase()} @ ${result.exit}`);
-        console.log(`PnL: $${result.pnl.toFixed(2)}`);
-        console.log(`Capital: $${result.capitalAfter.toFixed(2)}`);
-        console.log('--------------------------------------------------');
-    }
-    
-    /**
      * Handle errors from Jalgo
      * @param {Error} error - Error object
      */
     handleError(error) {
         console.error('Jalgo Error (Bybit):', error);
-    }
-    
-    /**
-     * Get current performance stats
-     * @returns {Object} - Performance statistics
-     */
-    getStats() {
-        return this.jalgo.getPerformanceStats();
-    }
-    
-    /**
-     * Log current active position details
-     */
-    logActivePosition() {
-        if (this.jalgo && typeof this.jalgo.logActivePosition === 'function') {
-            this.jalgo.logActivePosition();
-        } else {
-            console.log('Active position logging not available for Bybit');
-        }
     }
     
     /**

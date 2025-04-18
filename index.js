@@ -10,7 +10,7 @@ import MultiExchangeEngine from './src/multi-exchange/engine.js';
 import binance_candles from './src/utility/binance-market.js';
 import bybit_candles from './src/utility/bybit-market.js';
 
-export { 
+export {
     Jalgo,               // Core algorithm class
     BinanceWebsocketFeed,// Binance WebSocket feed
     BybitWebsocketFeed,  // Bybit WebSocket feed

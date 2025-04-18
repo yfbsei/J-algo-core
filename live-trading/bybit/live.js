@@ -9,15 +9,8 @@ const options = {
     symbol: 'BTCUSDT',           // Trading pair symbol
     timeframe: '1m',             // Candlestick timeframe (1m, 5m, 15m, 1h, etc.)
     market: 'futures',           // 'futures' or 'spot'
-    
-    // Risk management options
-    riskOptions: {
-      initialCapital: USDT_balance,      // Starting capital
-      riskPerTrade: 0.01,         // Risk x% per trade
-      rewardMultiple: 0.5,       // Target profit is 1.5x the risk
-      useLeverage: true,         // Use leverage for futures
-      leverageAmount: 10        // x leverage
-    },
+    rewardMultiple: 0.5,
+    scalpMode: false,
 
       // Custom event handlers
   onSignal: async (signal) => {
@@ -28,10 +21,10 @@ const options = {
     await submitTradeWithTP({
         symbol: signal.symbol, 
         side: signal.position === "long" ? "buy" : "sell", 
-        qty: calculateQty(signal.symbol, USDT_balance * (0.01/100)), // riskPerTrade 
+        qty: await calculateQty(signal.symbol, USDT_balance * (0.01/100)), // riskPerTrade CHANGE FOR PRODCUTION
         takeProfit: signal.target, 
         leverage: 10 // leverageAmount
-    }); 
+    });
 
     const trade = await getTradingStats(signal.symbol);
     console.log(trade);
