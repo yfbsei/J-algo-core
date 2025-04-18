@@ -40,7 +40,7 @@ async function closePosition(symbol = 'BTCUSDT') {
       const oppositeSide = position.side === 'Buy' ? 'Sell' : 'Buy';
   
       // Step 2: Submit market order in opposite direction
-      await restClient.submitOrder({
+      const order = await restClient.submitOrder({
         category: 'linear',
         symbol: symbol,
         side: oppositeSide,                 // opposite of your current position
@@ -56,13 +56,38 @@ async function closePosition(symbol = 'BTCUSDT') {
     }
   }
 
-  async function calculateQty({ symbol = 'BTCUSDT', usdtAmount = 100 }) {
-    const { result } = await restClient.getTickers({ category: 'linear', symbol });
-    const price = parseFloat(result.list[0].lastPrice);
+  async function calculateQty(symbol = 'BTCUSDT', usdtAmount = 100) { // HAVE TO PUT USDT at end of coin ticker
+    try {
+      // 1. Get latest price
+      const tickerRes = await restClient.getTickers({ category: 'linear', symbol });
+      const price = parseFloat(tickerRes.result.list[0].lastPrice);
   
-    const qty = (usdtAmount / price).toFixed(6); // adjust decimal places based on symbol's min qty
-    return qty;
+      // 2. Get instrument info (min/max/step)
+      const instrumentRes = await restClient.getInstrumentsInfo({ category: 'linear', symbol });
+      const info = instrumentRes.result.list[0];
+  
+      const minQty = parseFloat(info.lotSizeFilter.minOrderQty);
+      const maxQty = parseFloat(info.lotSizeFilter.maxOrderQty);
+      const qtyStep = parseFloat(info.lotSizeFilter.qtyStep);
+  
+      // 3. Calculate raw qty
+      let qty = usdtAmount / price;
+  
+      // 4. Clamp between min and max
+      qty = Math.max(minQty, Math.min(maxQty, qty));
+  
+      // 5. Round to nearest valid step using mathjs
+      const stepDecimals = qtyStep.toString().split('.')[1]?.length || 0;
+      const roundedQty = round(Math.floor(qty / qtyStep) * qtyStep, stepDecimals);
+  
+      return roundedQty.toFixed(stepDecimals); // return as string, still formatted
+    } catch (err) {
+      console.error('❌ Error calculating quantity:', err);
+      throw err;
+    }
   }
+  
+  
 
 /**
  * Submit a leveraged market order with Take Profit (no SL)
@@ -74,15 +99,17 @@ async function closePosition(symbol = 'BTCUSDT') {
  * @param {string} params.takeProfit - TP price
  * @param {number|string} params.leverage - Leverage to set before trade
  */
-async function submitTradeWithTP({ symbol = 'BTCUSDT', side = 'Buy', qty = '0.01', takeProfit = '0', leverage = 10 }) {
+async function submitTradeWithTP({symbol= 'BTCUSDT', side = 'Buy', qty = '0.01', takeProfit = '0', leverage = 10} = {}) {
     try {
+
+      console.log(symbol, side, qty, takeProfit, leverage);
 
     // 1. Set leverage
     await restClient.setLeverage({
         category: 'linear',
         symbol,
-        buyLeverage: side === 'Buy' ? leverage.toString() : '1',
-        sellLeverage: side === 'Sell' ? leverage.toString() : '1',
+        buyLeverage: leverage.toString(),
+        sellLeverage: leverage.toString(),
       });
   
       console.log(`⚙️ Leverage set to ${leverage}x for ${side} side`);

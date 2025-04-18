@@ -23,6 +23,8 @@ const options = {
   onSignal: async (signal) => {
     await closePosition(signal.symbol); // check and close trade if open
     
+    console.log(signal)
+    
     await submitTradeWithTP({
         symbol: signal.symbol, 
         side: signal.position === "long" ? "buy" : "sell", 
