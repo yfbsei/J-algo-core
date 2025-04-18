@@ -125,8 +125,8 @@ const trend_sniper = (source = {}, length = 6, period = 16, multiplier = 9, fast
         return {
             jATR,
             var_ma,
-            jATR_sma: jATR_sma.length ? round(jATR_sma, 1) : [],
-            fast_jATR_sma: fast_jATR_sma.length ? round(fast_jATR_sma, 1) : [],
+            jATR_sma: jATR_sma.length ? jATR_sma : [],
+            fast_jATR_sma: fast_jATR_sma.length ? fast_jATR_sma : [],
             signal
         };
     } catch (error) {

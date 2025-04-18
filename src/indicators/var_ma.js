@@ -51,7 +51,7 @@ const variable_moving_average = (source = {}, length = 6) => {
 
             var_ma.push(value); 
         }
-        return round(var_ma, 1);
+        return var_ma;
     } catch (error) {
         console.error("Error calculating Variable Moving Average:", error);
         return [];

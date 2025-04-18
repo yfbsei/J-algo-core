@@ -15,16 +15,14 @@ const options = {
       // Custom event handlers
   onSignal: async (signal) => {
     await closePosition(signal.symbol); // check and close trade if open
-    
-    console.log(signal)
-    
-    await submitTradeWithTP({
-        symbol: signal.symbol, 
-        side: signal.position === "long" ? "buy" : "sell", 
-        qty: await calculateQty(signal.symbol, USDT_balance * (0.01/100)), // riskPerTrade CHANGE FOR PRODCUTION
-        takeProfit: signal.target, 
-        leverage: 10 // leverageAmount
-    });
+        
+    await submitTradeWithTP(
+        signal.symbol, 
+        signal.position === "long" ? "Buy" : "Sell", 
+        await calculateQty(signal.symbol, USDT_balance * (0.01/100)), // riskPerTrade CHANGE FOR PRODCUTION
+        signal.target.toString(), 
+        10 // leverageAmount
+    );
 
     const trade = await getTradingStats(signal.symbol);
     console.log(trade);

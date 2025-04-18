@@ -99,7 +99,7 @@ async function closePosition(symbol = 'BTCUSDT') {
  * @param {string} params.takeProfit - TP price
  * @param {number|string} params.leverage - Leverage to set before trade
  */
-async function submitTradeWithTP({symbol= 'BTCUSDT', side = 'Buy', qty = '0.01', takeProfit = '0', leverage = 10} = {}) {
+async function submitTradeWithTP(symbol= 'BTCUSDT', side = 'Buy', qty = '0.01', takeProfit = '0', leverage = 10) {
     try {
 
       console.log(symbol, side, qty, takeProfit, leverage);
@@ -124,7 +124,7 @@ async function submitTradeWithTP({symbol= 'BTCUSDT', side = 'Buy', qty = '0.01',
         takeProfit,            // Set TP
         tpTriggerBy: 'LastPrice', // You can also use 'MarkPrice' or 'IndexPrice'
       });
-  
+        
       console.log(`✅ Trade submitted: ${side} ${qty} ${symbol} with TP at ${takeProfit}`);
       return order.result;
     } catch (err) {

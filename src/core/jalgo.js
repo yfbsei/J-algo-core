@@ -175,10 +175,10 @@ class Jalgo {
             // Calculate take profit based on position direction
             if (entryPrice > refStop) {
                 // Long position: reference stop is below entry
-                return parseFloat((entryPrice + reward).toFixed(2));
+                return parseFloat((entryPrice + reward));
             } else {
                 // Short position: reference stop is above entry
-                return parseFloat((entryPrice - reward).toFixed(2));
+                return parseFloat((entryPrice - reward));
             }
         }
 }

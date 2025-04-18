@@ -62,7 +62,7 @@ const SATR = (source = {}, period = 16, multiplier = 9) => {
             defATR.push(val);
         }
         
-        return round(defATR, 1);
+        return defATR;
     } catch (error) {
         console.error("Error calculating Smoothed ATR:", error);
         return [];
