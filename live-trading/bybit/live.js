@@ -18,7 +18,7 @@ const options = {
         
     await submitTradeWithTP(
         signal.symbol, 
-        signal.position === "long" ? "Buy" : "Sell", 
+        signal.position, 
         await calculateQty(signal.symbol, USDT_balance * (0.01/100)), // riskPerTrade CHANGE FOR PRODCUTION
         signal.target.toString(), 
         10 // leverageAmount
@@ -26,6 +26,10 @@ const options = {
 
     const trade = await getTradingStats(signal.symbol);
     console.log(trade);
+  },
+
+  onTrailingStop: async (val) => {
+    await closePosition(options.symbol);
   },
 
   onError: (error) => {

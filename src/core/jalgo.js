@@ -30,10 +30,15 @@ class Jalgo {
         // Tracking variables
         this.isInitialized = false;
         this.lastProcessedCandleTime = null;
+        this.isInTrade = false;
+        this.target = 0;
+        this.side = null;
         
         // Event callbacks
         this.onSignal = options.onSignal || null;
+        this.onTrailingStop = options.onTrailingStop || null;
         this.onError = options.onError || null;
+        
         
         // Initialize the system
         this.initialize();
@@ -77,7 +82,7 @@ class Jalgo {
             }
             
             // Run the trading algorithm
-            const res = trend_sniper(this.initialCandles);
+            const res = trend_sniper(this.initialCandles, 6, 16, 9, 2);
             
             if (!res || !res.signal) {
                 return false;
@@ -85,12 +90,16 @@ class Jalgo {
             
             // Call the signal callback if provided
             if (this.onSignal) {
+                this.isInTrade = true;
+                this.target = this.calculateTakeProfit_level(res.signal.location, 
+                    this.scalpMode ? res.fast_jATR_sma.at(-1) : res.jATR_sma.at(-1), 
+                    this.rewardMultiple);
+
+                this.side = res.signal.position;
+
                 this.onSignal({
                     ...res.signal,
-                    target: this.calculateTakeProfit_level(
-                        res.signal.location, 
-                        this.scalpMode ? res.fast_jATR_sma.at(-1) : res.jATR_sma.at(-1), 
-                        this.rewardMultiple),
+                    target: this.target,
                     provider: this.provider,
                     symbol: this.symbol
                 });
@@ -100,6 +109,40 @@ class Jalgo {
             console.error("Error processing trading signal:", error);
             if (this.onError) this.onError(error);
             return false;
+        }
+    }
+ 
+    trailingStop() {
+        // Run the trading algorithm
+        const res = trend_sniper(this.initialCandles, 6, 16, 9, 2);
+
+        if(this.side === "Buy") {
+            if(this.initialCandles.close.at(-1) <= res.fast_jATR_sma) this.onTrailingStop(true);
+        }
+
+        if(this.side === "Sell") {
+            if(this.initialCandles.close.at(-1) >= res.fast_jATR_sma) this.onTrailingStop(true);
+        }
+    }
+
+    takeProfit(candleData) {
+        // Extract candle data
+        const open = parseFloat(candleData.o), high = parseFloat(candleData.h), low = parseFloat(candleData.l);
+
+        if(this.side === "Buy") {
+            if(open >= this.target || high >= this.target) {
+                this.isInTrade = false;
+                this.target = 0;
+                this.side = null;
+            } 
+        }
+
+        if(this.side === "Sell") {
+            if(open <= this.target || low <= this.target) {
+                this.isInTrade = false;
+                this.target = 0;
+                this.side = null;
+            } 
         }
     }
 
@@ -118,36 +161,22 @@ class Jalgo {
             if (this.lastProcessedCandleTime === candleData.t) {
                 return;
             }
+
+            if(this.isInTrade) this.takeProfit(candleData);
             
-            // Extract candle data
-            const open = parseFloat(candleData.o);
-            const high = parseFloat(candleData.h);
-            const low = parseFloat(candleData.l);
-            const close = parseFloat(candleData.c);
-            const volume = parseFloat(candleData.v);
             
             // Only process completed candles for signal generation
             if (candleData.x === true) {
-                // Update candle data arrays by shifting the oldest and adding the newest
-                for (const key of Object.keys(this.initialCandles)) {
-                    if (Array.isArray(this.initialCandles[key]) && this.initialCandles[key].length > 0) {
-                        // Remove the oldest candle
-                        this.initialCandles[key].shift();
-                        
-                        // Add the new candle value
-                        const value = key === 'open' ? open :
-                                    key === 'high' ? high :
-                                    key === 'low' ? low :
-                                    key === 'close' ? close :
-                                    key === 'volume' ? volume : 0;
-                                    
-                        this.initialCandles[key].push(value);
-                    }
-                }
                 
+                // Update inital candles
+                this.initialCandles = this.initialCandles_update(candleData);
+
                 // Update last processed candle time
                 this.lastProcessedCandleTime = candleData.t;
                 
+                // check for trailing stop
+                if(this.isInTrade) this.trailingStop();
+
                 // Process for new signals on candle close
                 this.processSignal();
             }
@@ -157,6 +186,38 @@ class Jalgo {
         }
     }
 
+    initialCandles_update(canadle) {
+        const temp_initialCandles = Object.fromEntries(
+            Object.entries(this.initialCandles).map(([key, arr]) => [key, [...arr]])
+          );
+
+        // Extract candle data
+        const 
+            open = parseFloat(canadle.o),
+            high = parseFloat(canadle.h),
+            low = parseFloat(canadle.l),
+            close = parseFloat(canadle.c),
+            volume = parseFloat(canadle.v);
+        
+        // Update candle data arrays by shifting the oldest and adding the newest
+        for (const key of Object.keys(temp_initialCandles)) {
+            if (Array.isArray(temp_initialCandles[key]) && temp_initialCandles[key].length > 0) {
+                // Remove the oldest candle
+                temp_initialCandles[key].shift();
+                // Add the new candle value
+                const value = 
+                    key === 'open' ? open :
+                    key === 'high' ? high :
+                    key === 'low' ? low :
+                    key === 'close' ? close :
+                    key === 'volume' ? volume : 0;
+                    
+                temp_initialCandles[key].push(value);
+            }
+        }
+
+        return temp_initialCandles;
+    }
 
         /**
      * Calculate take profit level based on entry and reference stop

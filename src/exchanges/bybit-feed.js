@@ -25,6 +25,7 @@ class BybitWebsocketFeed {
         // Store event handlers from options or use defaults
         this.onSignal = options.onSignal || this.handleSignal.bind(this);
         this.onError = options.onError || this.handleError.bind(this);
+        this.onTrailingStop = options.onTrailingStop || this.handleTrailingStop.bind(this);
         
         // Initialize Jalgo with Bybit as provider
         this.jalgo = new Jalgo({
@@ -37,6 +38,7 @@ class BybitWebsocketFeed {
 
             // Pass all event handlers to Jalgo
             onSignal: this.onSignal,
+            onTrailingStop: this.onTrailingStop,
             onError: this.onError
         });
         
@@ -216,6 +218,10 @@ class BybitWebsocketFeed {
         console.log('--------------------------------------------------');
         console.log(`📊 SIGNAL DETECTED (Bybit ${this.symbol}): ${signal.position.toUpperCase()}`);
         console.log('--------------------------------------------------');
+    }
+
+    handleTrailingStop(val) {
+        console.log("TSL hit, Market close the trade")
     }
     
     /**

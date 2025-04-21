@@ -106,7 +106,7 @@ const trend_sniper = (source = {}, length = 6, period = 16, multiplier = 9, fast
                 var_ma[var_ma.length-2] <= jATR[jATR.length-2]) {
                 signal = {
                     order: "market",
-                    position: 'long',
+                    position: 'Buy',
                     location: close[close.length-1] 
                 };
             } 
@@ -115,7 +115,7 @@ const trend_sniper = (source = {}, length = 6, period = 16, multiplier = 9, fast
                     var_ma[var_ma.length-2] >= jATR[jATR.length-2]) {
                 signal = {
                     order: "market",
-                    position: 'short',
+                    position: 'Sell',
                     location: close[close.length-1]
                 };
             }
