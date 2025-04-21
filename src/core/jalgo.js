@@ -100,6 +100,7 @@ class Jalgo {
                 this.onSignal({
                     ...res.signal,
                     target: this.target,
+                    stop: this.scalpMode ? res.fast_jATR_sma.at(-1) : res.jATR_sma.at(-1),
                     provider: this.provider,
                     symbol: this.symbol
                 });
@@ -146,6 +147,8 @@ class Jalgo {
         }
     }
 
+    // TODO handle stop loss update
+
     /**
      * Process a new candle from the market
      * @param {Object} candleData - New candle data in standardized format
@@ -162,7 +165,7 @@ class Jalgo {
                 return;
             }
 
-            if(this.isInTrade) this.takeProfit(candleData);
+            //if(this.isInTrade) this.takeProfit(candleData);
             
             
             // Only process completed candles for signal generation
@@ -175,7 +178,7 @@ class Jalgo {
                 this.lastProcessedCandleTime = candleData.t;
                 
                 // check for trailing stop
-                if(this.isInTrade) this.trailingStop();
+                //if(this.isInTrade) this.trailingStop();
 
                 // Process for new signals on candle close
                 this.processSignal();

@@ -99,10 +99,10 @@ async function closePosition(symbol = 'BTCUSDT') {
  * @param {string} params.takeProfit - TP price
  * @param {number|string} params.leverage - Leverage to set before trade
  */
-async function submitTradeWithTP(symbol= 'BTCUSDT', side = 'Buy', qty = '0.01', takeProfit = '0', leverage = 10) {
+async function submitTradeWithTPSL(symbol= 'BTCUSDT', side = 'Buy', qty = '0.01', takeProfit = '0', stopLoss = '0', leverage = 10) {
     try {
 
-      console.log(symbol, side, qty, takeProfit, leverage);
+      console.log(symbol, side, qty, takeProfit, stopLoss, leverage);
 
     // 1. Set leverage
     await restClient.setLeverage({
@@ -123,6 +123,8 @@ async function submitTradeWithTP(symbol= 'BTCUSDT', side = 'Buy', qty = '0.01', 
         qty,
         takeProfit,            // Set TP
         tpTriggerBy: 'LastPrice', // You can also use 'MarkPrice' or 'IndexPrice'
+        stopLoss,                // Set SL
+        slTriggerBy: 'LastPrice' // You can also use 'MarkPrice' or 'IndexPrice'
       });
         
       console.log(`✅ Trade submitted: ${side} ${qty} ${symbol} with TP at ${takeProfit}`);
@@ -138,5 +140,5 @@ export {
     getWalletBalance,
     closePosition,
     calculateQty,
-    submitTradeWithTP,
+    submitTradeWithTPSL,
 }

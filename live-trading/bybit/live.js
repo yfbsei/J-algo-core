@@ -1,5 +1,6 @@
+import { sign } from 'mathjs';
 import BybitWebsocketFeed from '../../src/exchanges/bybit-feed.js'
-import { getWalletBalance, closePosition, calculateQty, submitTradeWithTP } from './client.js';
+import { getWalletBalance, closePosition, calculateQty, submitTradeWithTPSL } from './client.js';
 import { getTradingStats } from './stats.js';
 
 const USDT_balance = await getWalletBalance(); // BTC.jalgo.riskManager.initialCapital * 33%
@@ -9,19 +10,20 @@ const options = {
     symbol: 'BTCUSDT',           // Trading pair symbol
     timeframe: '1m',             // Candlestick timeframe (1m, 5m, 15m, 1h, etc.)
     market: 'futures',           // 'futures' or 'spot'
-    rewardMultiple: 0.5,
+    rewardMultiple: 1,
     scalpMode: false,
 
       // Custom event handlers
   onSignal: async (signal) => {
     await closePosition(signal.symbol); // check and close trade if open
         
-    await submitTradeWithTP(
+    await submitTradeWithTPSL(
         signal.symbol, 
         signal.position, 
         await calculateQty(signal.symbol, USDT_balance * (0.01/100)), // riskPerTrade CHANGE FOR PRODCUTION
         signal.target.toString(), 
-        10 // leverageAmount
+        signal.stop.soString(),
+        50 // leverageAmount
     );
 
     const trade = await getTradingStats(signal.symbol);
@@ -29,7 +31,8 @@ const options = {
   },
 
   onTrailingStop: async (val) => {
-    await closePosition(options.symbol);
+    val;
+    // await closePosition(options.symbol);
   },
 
   onError: (error) => {
