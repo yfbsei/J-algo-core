@@ -1,50 +1,54 @@
-import { sign } from 'mathjs';
 import BybitWebsocketFeed from '../../src/exchanges/bybit-feed.js'
 import { getWalletBalance, closePosition, calculateQty, submitTradeWithTPSL } from './client.js';
 import { getTradingStats } from './stats.js';
 
 const USDT_balance = await getWalletBalance(); // BTC.jalgo.riskManager.initialCapital * 33%
 
-  // Create configuration options
-const options = {
-    symbol: 'BTCUSDT',           // Trading pair symbol
-    timeframe: '1m',             // Candlestick timeframe (1m, 5m, 15m, 1h, etc.)
-    market: 'futures',           // 'futures' or 'spot'
-    rewardMultiple: 1,
-    scalpMode: false,
+const createOptions = ({
+  symbol = "BTCUSDT",
+  timeframe = "1m",
+  market = "futures",
+  rewardMultiple = 1,
+  scalpMode = false,
+  leverageAmount = 10
+} = {}) => {
+  return {
+    symbol,
+    timeframe,
+    market,
+    rewardMultiple,
+    scalpMode,
 
-      // Custom event handlers
-  onSignal: async (signal) => {
-    await closePosition(signal.symbol); // check and close trade if open
-        
-    await submitTradeWithTPSL(
-        signal.symbol, 
-        signal.position, 
-        await calculateQty(signal.symbol, USDT_balance * (0.01/100)), // riskPerTrade CHANGE FOR PRODCUTION
-        signal.target.toString(), 
-        signal.stop.soString(),
-        50 // leverageAmount
-    );
+    onSignal: async (signal) => {
+      await closePosition(signal.symbol);
 
-    const trade = await getTradingStats(signal.symbol);
-    console.log(trade);
-  },
+      await submitTradeWithTPSL(
+        signal.symbol,
+        signal.position,
+        await calculateQty(signal.symbol, USDT_balance * (0.01 / 100)),
+        signal.target.toString(),
+        signal.stop.toString(),
+        leverageAmount
+      );
 
-  onTrailingStop: async (val) => {
-    val;
-    // await closePosition(options.symbol);
-  },
+      const trade = await getTradingStats(signal.symbol);
+      console.log(trade);
+    },
 
-  onError: (error) => {
-    console.log(`Custom error handler:`, error);
-  }
+    onTrailingStop: async (val) => val,
+
+    onError: (error) => console.log(`Custom error handler:`, error)
   };
+};
 
-  const BTC = new BybitWebsocketFeed(options);
+const BTC = new BybitWebsocketFeed(createOptions({ leverageAmount: 50 }));
+const AERGO = new BybitWebsocketFeed(createOptions({ symbol: "AERGOUSDT" }));
+
 
   // Handle graceful shutdown
 process.on('SIGINT', () => {
     console.log('Closing WebSocket connections...');
     BTC.close();
+    AERGO.close;
     process.exit(0);
   });
