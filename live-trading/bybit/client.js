@@ -4,8 +4,8 @@ import { round } from 'mathjs';
 
   // Create the Bybit REST restClient
   const restClient = new RestClientV5({
-    key: "Kz10q3ZbhOqEoPbVg8",
-    secret: "L20xiFdQoADEp1GfoYE7blDV1LrFyudukdM8",
+    key: "",
+    secret: "",
     testnet: false, // Always use mainnet (even for demo trading)
     recv_window: 10000, // 10 seconds
     enable_time_sync: true, // Auto-sync time
